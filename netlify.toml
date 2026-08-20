@@ -16,11 +16,15 @@
     # Keep it out of every index.
     X-Robots-Tag = "noindex, nofollow, noarchive"
     Cross-Origin-Opener-Policy = "same-origin"
+    # CSS and JS are now their own files and the fonts are self-hosted, so no
+    # inline execution and no off-domain font host are needed. Everything the
+    # page loads comes from 'self'; the only cross-origin traffic is the
+    # Supabase API in connect-src.
     Content-Security-Policy = """
       default-src 'self';
-      script-src 'self' 'unsafe-inline';
-      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-      font-src https://fonts.gstatic.com;
+      script-src 'self';
+      style-src 'self';
+      font-src 'self';
       img-src 'self' data:;
       connect-src https://ldxpockcgcxvsrbyhcnt.supabase.co;
       form-action 'self';
@@ -29,12 +33,27 @@
       object-src 'none'
     """
 
-# index.html must never be cached, or a deploy will not reach anyone who has
-# the page open.
+# index.html, app.js and app.css must never be cached, or a deploy will not
+# reach anyone who has the page open. Fonts are content-stable and may cache.
 [[headers]]
   for = "/index.html"
   [headers.values]
     Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/app.js"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/app.css"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
 
 [[redirects]]
   from = "/*"

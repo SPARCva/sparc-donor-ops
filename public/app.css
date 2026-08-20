@@ -99,6 +99,18 @@
   @media (max-width:620px){
     .card{grid-template-columns:48px 1fr;gap:12px;padding:14px}
     .wait b{font-size:23px} main{padding:20px 15px 70px}
+    /* Header: let the name and actions drop to their own full-width line
+       instead of crowding the brand into three ragged lines. */
+    .topbar-in{flex-wrap:wrap;gap:6px 14px;padding:11px 15px}
+    .who{margin-left:0;width:100%}
+    /* The .spacer (flex:1) opens an awkward gap between Save and the other
+       actions on a phone. Collapse it so the button group packs to the left
+       and wraps naturally; give buttons and the wide inputs full-width,
+       comfortable tap targets. */
+    .controls .spacer{display:none;flex-basis:0}
+    .controls{gap:8px 10px}
+    .controls .btn{flex:1 1 auto}
+    .controls .field.wide,.controls .field.med{width:100%;min-width:0}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 

@@ -1,0 +1,123 @@
+/* Self-hosted fonts (variable woff2, latin + latin-ext). No Google Fonts:
+   the CSP forbids off-domain requests and donor PII is on every screen. */
+@font-face{font-family:'Archivo';font-style:normal;font-weight:500 800;font-display:swap;src:url(/fonts/archivo-latin.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:500 800;font-display:swap;src:url(/fonts/archivo-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 600;font-display:swap;src:url(/fonts/inter-latin.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Inter';font-style:normal;font-weight:400 600;font-display:swap;src:url(/fonts/inter-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;}
+
+:root{
+    --ink:#10203D; --ink-60:#54627C; --ink-40:#8A95A8;
+    --paper:#F4F6F9; --card:#FFF; --rule:#DDE3EC;
+    --green:#00874C; --green-soft:#E4F3EB;
+    --blue:#2C6FA8; --blue-soft:#E6EEF6;
+    --amber:#B26A00; --amber-soft:#FBF0DE;
+    --red:#A8302B; --red-soft:#F8E7E6;
+    --shadow:0 1px 2px rgba(16,32,61,.06),0 4px 14px rgba(16,32,61,.05);
+  }
+  *{box-sizing:border-box} html,body{margin:0;padding:0}
+  body{background:var(--paper);color:var(--ink);font:400 15px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  h1,h2,h3,.display{font-family:Archivo,Inter,sans-serif;letter-spacing:-.02em;margin:0}
+  button{font:inherit;cursor:pointer} input,select,textarea{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
+  .hidden{display:none!important}
+  a{color:var(--blue)}
+
+  .signin-wrap{min-height:100dvh;display:grid;place-items:center;padding:24px}
+  .signin{width:100%;max-width:380px;background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:32px;box-shadow:var(--shadow)}
+  .mark{display:flex;align-items:baseline;gap:9px;margin-bottom:6px}
+  .mark b{font-family:Archivo;font-weight:800;font-size:21px;letter-spacing:-.03em}
+  .mark span{font-size:11px;text-transform:uppercase;letter-spacing:.13em;color:var(--ink-40);font-weight:600}
+  label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-60);margin:0 0 6px}
+  .field{width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:7px;background:#fff;margin-bottom:16px}
+  textarea.field{min-height:80px;resize:vertical;font-family:inherit}
+  .btn{border:0;border-radius:7px;padding:10px 15px;font-weight:600;font-size:14px;background:var(--ink);color:#fff;transition:opacity .15s}
+  .btn:hover{opacity:.88} .btn[disabled]{opacity:.45;cursor:not-allowed}
+  .btn-full{width:100%} .btn-go{background:var(--green);color:#fff}
+  .btn-quiet{background:#fff;color:var(--ink-60);border:1px solid var(--rule)}
+  .btn-sm{padding:7px 11px;font-size:13px}
+  .msg{font-size:13.5px;padding:10px 12px;border-radius:7px;margin-bottom:16px}
+  .msg-bad{background:var(--red-soft);color:var(--red)}
+  .msg-ok{background:var(--green-soft);color:var(--green)}
+
+  .topbar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--rule)}
+  .topbar-in{max-width:1140px;margin:0 auto;padding:13px 22px;display:flex;align-items:center;gap:16px}
+  .who{margin-left:auto;font-size:13px;color:var(--ink-60)}
+  .link{background:none;border:0;color:var(--ink-60);font-size:13px;text-decoration:underline;padding:0}
+  main{max-width:1140px;margin:0 auto;padding:26px 22px 90px}
+  .lede h1{font-size:clamp(24px,4.2vw,33px);font-weight:800;line-height:1.13;max-width:22ch}
+  .lede p{color:var(--ink-60);margin:9px 0 0;max-width:58ch;font-size:14.5px}
+  .lede{margin-bottom:24px}
+
+  .tabs{display:flex;gap:3px;border-bottom:1px solid var(--rule);margin-bottom:22px;overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{background:none;border:0;border-bottom:2px solid transparent;padding:10px 13px;color:var(--ink-60);font-weight:600;font-size:14px;white-space:nowrap;margin-bottom:-1px}
+  .tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink)}
+  .pill{display:inline-block;min-width:20px;padding:1px 7px;border-radius:20px;font-size:11.5px;font-weight:700;margin-left:7px;font-variant-numeric:tabular-nums}
+  .pill-amber{background:var(--amber-soft);color:var(--amber)}
+  .pill-blue{background:var(--blue-soft);color:var(--blue)}
+  .pill-grey{background:#EBEFF5;color:var(--ink-60)}
+
+  .card{background:var(--card);border:1px solid var(--rule);border-radius:11px;padding:16px 18px;margin-bottom:11px;box-shadow:var(--shadow);display:grid;grid-template-columns:62px 1fr;gap:18px;align-items:start}
+  .card.settled{opacity:.5}
+  .wait{text-align:center;padding-top:2px}
+  .wait b{display:block;font-family:Archivo;font-weight:800;font-size:28px;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+  .wait span{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.11em;color:var(--ink-40);font-weight:600;margin-top:3px}
+  .w-cool b{color:var(--ink-40)} .w-warm b{color:var(--blue)} .w-hot b{color:var(--amber)} .w-cold b{color:var(--red)}
+  .who-line{font-family:Archivo;font-weight:700;font-size:16.5px;margin-bottom:3px}
+  .ask{color:var(--ink-60);font-size:14px;margin-bottom:10px}
+  .meta{font-size:12.5px;color:var(--ink-40);margin-top:6px}
+  .excerpt{font-size:13px;color:var(--ink-60);background:#FAFBFD;border-left:3px solid var(--rule);padding:9px 12px;border-radius:0 6px 6px 0;margin:0 0 11px;white-space:pre-wrap;max-height:8.5em;overflow:auto}
+  .tag{display:inline-block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:4px;background:#EBEFF5;color:var(--ink-60);margin-right:6px;vertical-align:1px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .controls .field{margin:0;width:auto;min-width:130px;padding:8px 10px;font-size:14px}
+  .note{font-size:12.5px;margin-top:9px;padding:8px 11px;border-radius:6px}
+  .note-ok{background:var(--green-soft);color:var(--green)}
+  .note-bad{background:var(--red-soft);color:var(--red)}
+  .spacer{flex:1}
+
+  .empty{text-align:center;padding:52px 24px;border:1px dashed var(--rule);border-radius:11px;background:#fff}
+  .empty b{display:block;font-family:Archivo;font-size:18px;font-weight:700;margin-bottom:6px}
+  .empty p{color:var(--ink-60);margin:0;font-size:14px}
+  .sec{display:flex;align-items:center;gap:12px;margin:28px 0 11px}
+  .sec h2{font-size:17px;font-weight:700}
+  .tablewrap{background:#fff;border:1px solid var(--rule);border-radius:11px;overflow-x:auto;box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:620px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-40);font-weight:600;padding:11px 14px;border-bottom:1px solid var(--rule);white-space:nowrap;background:#FAFBFD;position:sticky;top:0}
+  td{padding:10px 14px;border-bottom:1px solid #EDF1F6;vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .state{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:20px;white-space:nowrap;display:inline-block}
+  .s-ok{background:var(--green-soft);color:var(--green)}
+  .s-wait{background:var(--amber-soft);color:var(--amber)}
+  .s-info{background:var(--blue-soft);color:var(--blue)}
+  .s-bad{background:var(--red-soft);color:var(--red)}
+  .loading{text-align:center;padding:52px;color:var(--ink-40);font-size:14px}
+  .notebox{background:#fff;border:1px solid var(--rule);border-radius:11px;padding:16px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .noterow{background:#fff;border:1px solid var(--rule);border-radius:10px;padding:13px 16px;margin-bottom:9px;box-shadow:var(--shadow)}
+  .noterow.done{opacity:.55}
+  .noterow p{margin:0 0 7px;white-space:pre-wrap}
+  @media (max-width:620px){
+    .card{grid-template-columns:48px 1fr;gap:12px;padding:14px}
+    .wait b{font-size:23px} main{padding:20px 15px 70px}
+    /* Header: let the name and actions drop to their own full-width line
+       instead of crowding the brand into three ragged lines. */
+    .topbar-in{flex-wrap:wrap;gap:6px 14px;padding:11px 15px}
+    .who{margin-left:0;width:100%}
+    /* The .spacer (flex:1) opens an awkward gap between Save and the other
+       actions on a phone. Collapse it so the button group packs to the left
+       and wraps naturally; give buttons and the wide inputs full-width,
+       comfortable tap targets. */
+    .controls .spacer{display:none;flex-basis:0}
+    .controls{gap:8px 10px}
+    .controls .btn{flex:1 1 auto}
+    .controls .field.wide,.controls .field.med{width:100%;min-width:0}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* Utility classes replacing former inline style attributes, so the CSP can
+   drop 'unsafe-inline' from style-src. */
+.signin-sub{color:var(--ink-60);font-size:14px;margin:0 0 22px}
+.controls-center{justify-content:center;margin-top:14px}
+.note-controls{margin-top:9px}
+.controls .field.wide{min-width:200px}
+.controls .field.med{min-width:120px}

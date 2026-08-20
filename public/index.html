@@ -152,6 +152,26 @@ const OPS = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/donor-ops";
 const BLM = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/bloomerang";
 let TOKEN = null, USER = null, D = null, TAB = "questions";
 
+// Session lives in sessionStorage, never localStorage: this is donor data on a
+// shared office machine, so the session must die with the tab. We keep the
+// token, its server-issued expiry and the user record so a refresh can go
+// straight back to the app instead of the sign-in card.
+const SESSION_KEY = "sparc_donor_ops_session";
+function saveSession(r) {
+  TOKEN = r.token; USER = r.user;
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: r.token, expires_at: r.expires_at, user: r.user })); } catch {}
+}
+function clearSession() {
+  TOKEN = null; USER = null;
+  try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+}
+function readSession() {
+  let s; try { s = JSON.parse(sessionStorage.getItem(SESSION_KEY) || "null"); } catch { return null; }
+  if (!s || !s.token) return null;
+  if (s.expires_at && new Date(s.expires_at).getTime() <= Date.now()) return null;
+  return s;
+}
+
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
@@ -162,7 +182,7 @@ async function call(url, action, body = {}) {
     body: JSON.stringify({ action, ...body }),
   });
   const out = await r.json().catch(() => ({ error:"The server sent something unreadable." }));
-  if (!r.ok) throw new Error(out.error || `Request failed (${r.status}).`);
+  if (!r.ok) { const err = new Error(out.error || `Request failed (${r.status}).`); err.status = r.status; throw err; }
   return out;
 }
 const api = (a, b) => call(OPS, a, b);
@@ -185,16 +205,21 @@ $("signinForm").addEventListener("submit", async e => {
   const b = $("signinBtn"); b.disabled = true; b.textContent = "Signing in…"; $("signinMsg").innerHTML = "";
   try {
     const r = await api("login", { email:$("email").value, password:$("password").value });
-    TOKEN = r.token; USER = r.user;
-    $("signinView").classList.add("hidden"); $("appView").classList.remove("hidden");
-    $("whoName").textContent = USER.name || USER.email;
+    saveSession(r);
+    enterApp();
     await refresh();
   } catch (err) {
     $("signinMsg").innerHTML = `<div class="msg msg-bad">${esc(err.message)}</div>`;
     $("password").value = "";
   } finally { b.disabled = false; b.textContent = "Sign in"; }
 });
-$("signoutBtn").addEventListener("click", async () => { try { await api("logout"); } catch {} location.reload(); });
+
+function enterApp() {
+  $("signinView").classList.add("hidden"); $("appView").classList.remove("hidden");
+  $("whoName").textContent = USER.name || USER.email;
+}
+
+$("signoutBtn").addEventListener("click", async () => { try { await api("logout"); } catch {} clearSession(); location.reload(); });
 
 $("pwBtn").addEventListener("click", async () => {
   const cur = prompt("Current password:"); if (!cur) return;
@@ -467,6 +492,28 @@ document.addEventListener("click", async e => {
     }
   } catch (err) { say("note-bad", err.message); btn.disabled = false; }
 });
+
+// ------------------------------------------------------- restore on refresh
+// If a stored, unexpired token is present, confirm it with `me` and go straight
+// to the app. A 401 means the server killed the session — clear it and show
+// sign-in. Any other error leaves the token in place; refresh() surfaces it.
+(async function restore() {
+  const s = readSession();
+  if (!s) return;
+  TOKEN = s.token; USER = s.user;
+  try {
+    const r = await api("me");
+    if (r && r.user) USER = r.user;
+    enterApp();
+    await refresh();
+  } catch (err) {
+    if (err.status === 401) { clearSession(); return; }
+    // Server unreachable: keep the session and show the app so the user isn't
+    // bounced to sign-in over a blip; refresh() reports the failure.
+    enterApp();
+    await refresh();
+  }
+})();
 </script>
 </body>
 </html>

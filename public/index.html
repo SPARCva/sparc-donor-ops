@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>SPARC — Donor Operations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#10203D; --ink-60:#54627C; --ink-40:#8A95A8;
+    --paper:#F4F6F9; --card:#FFF; --rule:#DDE3EC;
+    --green:#00874C; --green-soft:#E4F3EB;
+    --blue:#2C6FA8; --blue-soft:#E6EEF6;
+    --amber:#B26A00; --amber-soft:#FBF0DE;
+    --red:#A8302B; --red-soft:#F8E7E6;
+    --shadow:0 1px 2px rgba(16,32,61,.06),0 4px 14px rgba(16,32,61,.05);
+  }
+  *{box-sizing:border-box} html,body{margin:0;padding:0}
+  body{background:var(--paper);color:var(--ink);font:400 15px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  h1,h2,h3,.display{font-family:Archivo,Inter,sans-serif;letter-spacing:-.02em;margin:0}
+  button{font:inherit;cursor:pointer} input,select,textarea{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
+  .hidden{display:none!important}
+  a{color:var(--blue)}
+
+  .signin-wrap{min-height:100dvh;display:grid;place-items:center;padding:24px}
+  .signin{width:100%;max-width:380px;background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:32px;box-shadow:var(--shadow)}
+  .mark{display:flex;align-items:baseline;gap:9px;margin-bottom:6px}
+  .mark b{font-family:Archivo;font-weight:800;font-size:21px;letter-spacing:-.03em}
+  .mark span{font-size:11px;text-transform:uppercase;letter-spacing:.13em;color:var(--ink-40);font-weight:600}
+  label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-60);margin:0 0 6px}
+  .field{width:100%;padding:10px 12px;border:1px solid var(--rule);border-radius:7px;background:#fff;margin-bottom:16px}
+  textarea.field{min-height:80px;resize:vertical;font-family:inherit}
+  .btn{border:0;border-radius:7px;padding:10px 15px;font-weight:600;font-size:14px;background:var(--ink);color:#fff;transition:opacity .15s}
+  .btn:hover{opacity:.88} .btn[disabled]{opacity:.45;cursor:not-allowed}
+  .btn-full{width:100%} .btn-go{background:var(--green);color:#fff}
+  .btn-quiet{background:#fff;color:var(--ink-60);border:1px solid var(--rule)}
+  .btn-sm{padding:7px 11px;font-size:13px}
+  .msg{font-size:13.5px;padding:10px 12px;border-radius:7px;margin-bottom:16px}
+  .msg-bad{background:var(--red-soft);color:var(--red)}
+  .msg-ok{background:var(--green-soft);color:var(--green)}
+
+  .topbar{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--rule)}
+  .topbar-in{max-width:1140px;margin:0 auto;padding:13px 22px;display:flex;align-items:center;gap:16px}
+  .who{margin-left:auto;font-size:13px;color:var(--ink-60)}
+  .link{background:none;border:0;color:var(--ink-60);font-size:13px;text-decoration:underline;padding:0}
+  main{max-width:1140px;margin:0 auto;padding:26px 22px 90px}
+  .lede h1{font-size:clamp(24px,4.2vw,33px);font-weight:800;line-height:1.13;max-width:22ch}
+  .lede p{color:var(--ink-60);margin:9px 0 0;max-width:58ch;font-size:14.5px}
+  .lede{margin-bottom:24px}
+
+  .tabs{display:flex;gap:3px;border-bottom:1px solid var(--rule);margin-bottom:22px;overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{background:none;border:0;border-bottom:2px solid transparent;padding:10px 13px;color:var(--ink-60);font-weight:600;font-size:14px;white-space:nowrap;margin-bottom:-1px}
+  .tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink)}
+  .pill{display:inline-block;min-width:20px;padding:1px 7px;border-radius:20px;font-size:11.5px;font-weight:700;margin-left:7px;font-variant-numeric:tabular-nums}
+  .pill-amber{background:var(--amber-soft);color:var(--amber)}
+  .pill-blue{background:var(--blue-soft);color:var(--blue)}
+  .pill-grey{background:#EBEFF5;color:var(--ink-60)}
+
+  .card{background:var(--card);border:1px solid var(--rule);border-radius:11px;padding:16px 18px;margin-bottom:11px;box-shadow:var(--shadow);display:grid;grid-template-columns:62px 1fr;gap:18px;align-items:start}
+  .card.settled{opacity:.5}
+  .wait{text-align:center;padding-top:2px}
+  .wait b{display:block;font-family:Archivo;font-weight:800;font-size:28px;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.04em}
+  .wait span{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.11em;color:var(--ink-40);font-weight:600;margin-top:3px}
+  .w-cool b{color:var(--ink-40)} .w-warm b{color:var(--blue)} .w-hot b{color:var(--amber)} .w-cold b{color:var(--red)}
+  .who-line{font-family:Archivo;font-weight:700;font-size:16.5px;margin-bottom:3px}
+  .ask{color:var(--ink-60);font-size:14px;margin-bottom:10px}
+  .meta{font-size:12.5px;color:var(--ink-40);margin-top:6px}
+  .excerpt{font-size:13px;color:var(--ink-60);background:#FAFBFD;border-left:3px solid var(--rule);padding:9px 12px;border-radius:0 6px 6px 0;margin:0 0 11px;white-space:pre-wrap;max-height:8.5em;overflow:auto}
+  .tag{display:inline-block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:4px;background:#EBEFF5;color:var(--ink-60);margin-right:6px;vertical-align:1px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .controls .field{margin:0;width:auto;min-width:130px;padding:8px 10px;font-size:14px}
+  .note{font-size:12.5px;margin-top:9px;padding:8px 11px;border-radius:6px}
+  .note-ok{background:var(--green-soft);color:var(--green)}
+  .note-bad{background:var(--red-soft);color:var(--red)}
+  .spacer{flex:1}
+
+  .empty{text-align:center;padding:52px 24px;border:1px dashed var(--rule);border-radius:11px;background:#fff}
+  .empty b{display:block;font-family:Archivo;font-size:18px;font-weight:700;margin-bottom:6px}
+  .empty p{color:var(--ink-60);margin:0;font-size:14px}
+  .sec{display:flex;align-items:center;gap:12px;margin:28px 0 11px}
+  .sec h2{font-size:17px;font-weight:700}
+  .tablewrap{background:#fff;border:1px solid var(--rule);border-radius:11px;overflow-x:auto;box-shadow:var(--shadow)}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:620px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-40);font-weight:600;padding:11px 14px;border-bottom:1px solid var(--rule);white-space:nowrap;background:#FAFBFD;position:sticky;top:0}
+  td{padding:10px 14px;border-bottom:1px solid #EDF1F6;vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .state{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 8px;border-radius:20px;white-space:nowrap;display:inline-block}
+  .s-ok{background:var(--green-soft);color:var(--green)}
+  .s-wait{background:var(--amber-soft);color:var(--amber)}
+  .s-info{background:var(--blue-soft);color:var(--blue)}
+  .s-bad{background:var(--red-soft);color:var(--red)}
+  .loading{text-align:center;padding:52px;color:var(--ink-40);font-size:14px}
+  .notebox{background:#fff;border:1px solid var(--rule);border-radius:11px;padding:16px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .noterow{background:#fff;border:1px solid var(--rule);border-radius:10px;padding:13px 16px;margin-bottom:9px;box-shadow:var(--shadow)}
+  .noterow.done{opacity:.55}
+  .noterow p{margin:0 0 7px;white-space:pre-wrap}
+  @media (max-width:620px){
+    .card{grid-template-columns:48px 1fr;gap:12px;padding:14px}
+    .wait b{font-size:23px} main{padding:20px 15px 70px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="signin-wrap" id="signinView">
+  <form class="signin" id="signinForm">
+    <div class="mark"><b>SPARC</b><span>Donor Operations</span></div>
+    <p style="color:var(--ink-60);font-size:14px;margin:0 0 22px">Sign in to see what is waiting on a decision.</p>
+    <div id="signinMsg"></div>
+    <label for="email">Email</label>
+    <input class="field" id="email" type="email" autocomplete="username" required>
+    <label for="password">Password</label>
+    <input class="field" id="password" type="password" autocomplete="current-password" required>
+    <button class="btn btn-full" id="signinBtn" type="submit">Sign in</button>
+  </form>
+</div>
+
+<div id="appView" class="hidden">
+  <div class="topbar"><div class="topbar-in">
+    <div class="mark"><b>SPARC</b><span>Donor Operations</span></div>
+    <div class="who"><span id="whoName"></span> ·
+      <button class="link" id="pwBtn">Change password</button> ·
+      <button class="link" id="signoutBtn">Sign out</button></div>
+  </div></div>
+
+  <main>
+    <div class="lede"><h1 id="lede">Loading…</h1><p id="ledeSub"></p></div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="questions" aria-selected="true">Needs an answer<span class="pill pill-amber" id="cQ">0</span></button>
+      <button class="tab" role="tab" data-tab="notes" aria-selected="false">My notes<span class="pill pill-blue" id="cN">0</span></button>
+      <button class="tab" role="tab" data-tab="bloomerang" aria-selected="false">Bloomerang<span class="pill pill-blue" id="cB">0</span></button>
+      <button class="tab" role="tab" data-tab="records" aria-selected="false">Records<span class="pill pill-grey" id="cR">0</span></button>
+    </div>
+
+    <section id="panel-questions"></section>
+    <section id="panel-notes" class="hidden"></section>
+    <section id="panel-bloomerang" class="hidden"></section>
+    <section id="panel-records" class="hidden"></section>
+  </main>
+</div>
+
+<script>
+const OPS = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/donor-ops";
+const BLM = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/bloomerang";
+let TOKEN = null, USER = null, D = null, TAB = "questions";
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+async function call(url, action, body = {}) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type":"application/json", ...(TOKEN ? { Authorization:`Bearer ${TOKEN}` } : {}) },
+    body: JSON.stringify({ action, ...body }),
+  });
+  const out = await r.json().catch(() => ({ error:"The server sent something unreadable." }));
+  if (!r.ok) throw new Error(out.error || `Request failed (${r.status}).`);
+  return out;
+}
+const api = (a, b) => call(OPS, a, b);
+const blm = (a, b) => call(BLM, a, b);
+
+const money = n => n == null ? "—" : "$" + Number(n).toLocaleString("en-US",
+  { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 });
+const day = d => d ? new Date(d).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "—";
+const daysSince = d => d == null ? null : Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000));
+
+function waitBlock(days) {
+  if (days == null) return `<div class="wait w-cool"><b>—</b><span>no date</span></div>`;
+  const h = days >= 45 ? "w-cold" : days >= 21 ? "w-hot" : days >= 7 ? "w-warm" : "w-cool";
+  return `<div class="wait ${h}"><b>${days}</b><span>${days === 1 ? "day" : "days"}</span></div>`;
+}
+
+// ---------------------------------------------------------------- sign in
+$("signinForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const b = $("signinBtn"); b.disabled = true; b.textContent = "Signing in…"; $("signinMsg").innerHTML = "";
+  try {
+    const r = await api("login", { email:$("email").value, password:$("password").value });
+    TOKEN = r.token; USER = r.user;
+    $("signinView").classList.add("hidden"); $("appView").classList.remove("hidden");
+    $("whoName").textContent = USER.name || USER.email;
+    await refresh();
+  } catch (err) {
+    $("signinMsg").innerHTML = `<div class="msg msg-bad">${esc(err.message)}</div>`;
+    $("password").value = "";
+  } finally { b.disabled = false; b.textContent = "Sign in"; }
+});
+$("signoutBtn").addEventListener("click", async () => { try { await api("logout"); } catch {} location.reload(); });
+
+$("pwBtn").addEventListener("click", async () => {
+  const cur = prompt("Current password:"); if (!cur) return;
+  const nw = prompt("New password (at least 12 characters):"); if (!nw) return;
+  if (nw !== prompt("Type the new password again:")) return alert("Those didn't match.");
+  try { await api("change_password", { current_password: cur, new_password: nw }); alert("Password changed."); }
+  catch (e) { alert(e.message); }
+});
+
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  TAB = t.dataset.tab;
+  document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x === t)));
+  ["questions","notes","bloomerang","records"].forEach(p => $("panel-"+p).classList.toggle("hidden", p !== TAB));
+}));
+
+async function refresh() {
+  ["questions","notes","bloomerang","records"].forEach(p => $("panel-"+p).innerHTML = `<div class="loading">Loading…</div>`);
+  try { D = await api("dashboard"); render(); }
+  catch (e) { $("panel-"+TAB).innerHTML = `<div class="msg msg-bad">${esc(e.message)}</div>`; }
+}
+
+function render() {
+  const q = D.counts.flags;
+  $("lede").textContent = q === 0 ? "Nothing is waiting on you." :
+    `${q} ${q === 1 ? "thing needs" : "things need"} an answer.`;
+  $("ledeSub").textContent = q === 0
+    ? "Every gift on file has a donor, a designation and an amount."
+    : "Each one is blocking a thank-you letter or a Bloomerang record.";
+  $("cQ").textContent = q;
+  $("cN").textContent = D.counts.notes;
+  $("cB").textContent = D.counts.bloomerang;
+  $("cR").textContent = D.sponsors.length + D.rsvps.length + D.tuition.length + D.staging.length + D.auction.length;
+  renderQuestions(); renderNotes(); renderBloomerang(); renderRecords();
+}
+
+// ------------------------------------------------------------- questions
+const LEVELS = ["Event Sponsor","Champion","Hero","Leader","Partner","Advocate","Friend"];
+const SRC = { sponsorships:"Sponsorship", tuition_payments:"Tuition", donations_staging:"Donation",
+              thank_you_letters:"Letter", crm_inbox:"Email" };
+
+function editor(f) {
+  const id = esc(f.row_id);
+  const types = (D.gift_types || []).map(t => `<option value="${t.code}">${esc(t.label)}</option>`).join("");
+  if (f.kind === "sponsor_level_mismatch" || f.kind === "sponsor_missing_amount") {
+    const s = D.sponsors.find(x => x.id === f.row_id) || {};
+    return `<select class="field" data-field="level"><option value="">Level…</option>
+      ${LEVELS.map(l => `<option ${s.level === l ? "selected":""}>${l}</option>`).join("")}</select>
+      <input class="field" data-field="amount" type="number" step="0.01" placeholder="Amount" value="${s.amount ?? ""}">
+      <button class="btn btn-go btn-sm" data-save="sponsorships:${id}">Save</button>`;
+  }
+  if (f.kind === "tuition_missing_participant")
+    return `<input class="field" data-field="participant" placeholder="Participant name" style="min-width:200px">
+      <button class="btn btn-go btn-sm" data-save="tuition_payments:${id}">Save</button>`;
+  if (f.kind === "donation_missing_donor")
+    return `<input class="field" data-field="donor_name" placeholder="Donor name" style="min-width:200px">
+      <button class="btn btn-go btn-sm" data-save="donations_staging:${id}">Save</button>`;
+  if (f.kind === "donation_uncategorised" || f.kind === "donation_parse_gap") {
+    const d = D.staging.find(x => x.id === f.row_id) || {};
+    return `<select class="field" data-field="gift_type"><option value="">What is it?…</option>${types}</select>
+      <input class="field" data-field="amount" type="number" step="0.01" placeholder="Amount" value="${d.amount ?? ""}">
+      <button class="btn btn-go btn-sm" data-save="donations_staging:${id}">Save</button>`;
+  }
+  if (f.kind === "check_email_review")
+    return `<button class="btn btn-quiet btn-sm" data-note='${esc(JSON.stringify({label:f.who, body:"Re: "+(f.question||"")}))}'>Add a note</button>`;
+  return `<span class="meta">Open the record under Records to fix this.</span>`;
+}
+
+function renderQuestions() {
+  const items = (D.flags || []).map(f => ({ ...f, _d: daysSince(f.date) }))
+    .sort((a,b) => (b._d ?? -1) - (a._d ?? -1));
+  $("panel-questions").innerHTML = !items.length
+    ? `<div class="empty"><b>Nothing is blocked.</b><p>Every gift on file has a donor, a designation and an amount.</p></div>`
+    : items.map(f => `
+      <div class="card" data-card="${esc(f.row_id)}">
+        ${waitBlock(f._d)}
+        <div>
+          <div class="who-line">${esc(f.who || "(unnamed)")}</div>
+          <div class="ask"><span class="tag">${SRC[f.table] || f.table}</span>${esc(f.question)}</div>
+          ${f.detail ? `<div class="excerpt">${esc(f.detail)}</div>` : ""}
+          <div class="controls">
+            ${editor(f)}
+            <div class="spacer"></div>
+            ${f.link ? `<a class="btn btn-quiet btn-sm" href="${esc(f.link)}" target="_blank" rel="noopener">Open email</a>` : ""}
+            <button class="btn btn-quiet btn-sm" data-dismiss='${esc(JSON.stringify({flag_kind:f.kind, table:f.table, row_id:f.row_id}))}'>Not relevant</button>
+          </div>
+          <div class="meta">${f.date ? "Received " + day(f.date) : "No date on the record"}${f.attachments ? ` · ${f.attachments} attachment${f.attachments===1?"":"s"}` : ""}</div>
+          <div class="result"></div>
+        </div>
+      </div>`).join("");
+}
+
+// ----------------------------------------------------------------- notes
+const TAGS = ["general","follow_up","question_for_kat","question_for_debi","bloomerang","gala","summit"];
+function renderNotes() {
+  const open = (D.notes||[]).filter(n => !n.resolved), done = (D.notes||[]).filter(n => n.resolved);
+  $("panel-notes").innerHTML = `
+    <div class="notebox">
+      <label for="noteBody">Add a note</label>
+      <textarea class="field" id="noteBody" placeholder="Something to chase, ask Kat, or remember from this sweep…"></textarea>
+      <div class="controls">
+        <select class="field" id="noteTag">${TAGS.map(t=>`<option value="${t}">${t.replace(/_/g," ")}</option>`).join("")}</select>
+        <button class="btn btn-go btn-sm" id="noteAdd">Save note</button>
+      </div>
+      <div class="result" id="noteResult"></div>
+    </div>
+    ${open.length ? open.map(noteRow).join("") : `<div class="empty"><p>No open notes.</p></div>`}
+    ${done.length ? `<div class="sec"><h2>Resolved</h2></div>${done.map(noteRow).join("")}` : ""}`;
+}
+const noteRow = n => `
+  <div class="noterow ${n.resolved ? "done":""}">
+    <p>${esc(n.body)}</p>
+    <div class="meta"><span class="tag">${esc((n.tag||"general").replace(/_/g," "))}</span>${day(n.created_at)} · ${esc(n.created_by)}</div>
+    <div class="controls" style="margin-top:9px">
+      ${n.resolved ? `<button class="btn btn-quiet btn-sm" data-note-open="${n.id}">Reopen</button>`
+                   : `<button class="btn btn-go btn-sm" data-note-done="${n.id}">Done</button>`}
+      <button class="link" data-note-del="${n.id}">Delete</button>
+    </div>
+  </div>`;
+
+// ------------------------------------------------------------ bloomerang
+function renderBloomerang() {
+  const rows = (D.inbox||[]).filter(i => ["needs_review","approved","failed","pushed"].includes(i.status));
+  const pend = rows.filter(i => i.status !== "pushed");
+  const guests = D.rsvp_candidates || [];
+  $("panel-bloomerang").innerHTML = `
+    ${guests.length ? `<div class="sec"><h2>Guests found in email</h2></div>` +
+      guests.map(g => `<div class="card" data-card="${g.id}">${waitBlock(daysSince(g.received_at))}
+        <div><div class="who-line">${esc([g.proposed?.title,g.proposed?.first_name,g.proposed?.last_name].filter(Boolean).join(" "))}</div>
+        <div class="ask">Requested by ${esc(g.requested_by || "unknown")} — add as a comped guest?</div>
+        ${g.raw_excerpt ? `<div class="excerpt">${esc(g.raw_excerpt)}</div>` : ""}
+        <div class="controls">
+          <button class="btn btn-go btn-sm" data-guest-yes="${g.id}">Add to RSVP list</button>
+          <button class="btn btn-quiet btn-sm" data-guest-no="${g.id}">Not a guest</button>
+          <div class="spacer"></div>
+          ${g.gmail_permalink ? `<a class="btn btn-quiet btn-sm" href="${esc(g.gmail_permalink)}" target="_blank" rel="noopener">Open email</a>`:""}
+        </div><div class="result"></div></div></div>`).join("") : ""}
+
+    <div class="sec"><h2>Waiting to go to Bloomerang</h2></div>
+    ${!pend.length ? `<div class="empty"><p>Nothing queued for Bloomerang.</p></div>` : pend.map(i => `
+      <div class="card" data-card="${i.id}">${waitBlock(daysSince(i.received_at))}
+        <div>
+          <div class="who-line">${esc(i.from_name || i.from_email || "(unknown)")}</div>
+          <div class="ask"><span class="tag">${esc(i.record_type || "note")}</span>${esc(i.subject || "(no subject)")}</div>
+          ${i.extraction?.summary || i.raw_body ? `<div class="excerpt">${esc(i.extraction?.summary || (i.raw_body||"").slice(0,400))}</div>`:""}
+          <div class="controls">
+            ${i.match_constituent_id
+              ? `<span class="state s-ok">Matched #${i.match_constituent_id}</span>`
+              : `<span class="state s-bad">No constituent match</span>
+                 <input class="field" data-field="_accountNumber" type="number" placeholder="Account #" style="min-width:120px">`}
+            <button class="btn btn-go btn-sm" data-approve="${i.id}" ${i.status==="approved"?"disabled":""}>Approve &amp; push</button>
+            <button class="btn btn-quiet btn-sm" data-reject="${i.id}">Reject</button>
+            <div class="spacer"></div>
+            ${i.gmail_permalink ? `<a class="btn btn-quiet btn-sm" href="${esc(i.gmail_permalink)}" target="_blank" rel="noopener">Open email</a>`:""}
+          </div>
+          ${i.push_error ? `<div class="note note-bad">${esc(i.push_error).slice(0,300)}</div>`:""}
+          <div class="meta">${day(i.received_at)} · status ${esc(i.status)}</div>
+          <div class="result"></div>
+        </div></div>`).join("")}
+
+    ${rows.filter(i=>i.status==="pushed").length ? `<div class="sec"><h2>Already in Bloomerang</h2></div>
+      <div class="tablewrap"><table><thead><tr><th>Who</th><th>Type</th><th>Subject</th><th>Pushed</th><th></th></tr></thead><tbody>
+      ${rows.filter(i=>i.status==="pushed").map(i=>`<tr>
+        <td>${esc(i.from_name||i.from_email||"—")}</td><td>${esc(i.record_type||"note")}</td>
+        <td>${esc(i.subject||"—")}</td><td class="num">${day(i.pushed_at)}</td>
+        <td><button class="link" data-undo="${i.id}">Undo</button></td></tr>`).join("")}
+      </tbody></table></div>`:""}`;
+}
+
+// --------------------------------------------------------------- records
+const SHEETS = () => [
+  { key:"donations", title:"Donations",
+    cols:["First Name","Last Name","Address","Email","Phone Number","Donation Date","Donation Amount","Campaign","Gift Type","Thank You Note Sent?","Date Thank You Letter Sent to Debi"],
+    rows:(D.staging||[]).map(d => {
+      const p=(d.donor_name||"").trim().split(/\s+/);
+      const l=(D.letters||[]).find(x=>x.donor_display_name===d.donor_name);
+      return [p.slice(0,-1).join(" ")||d.donor_name||"", p.length>1?p.at(-1):"", "", d.donor_email||"", "",
+        (d.donation_date||"").slice(0,10), d.amount ?? "", d.category||"", d.gift_type||"",
+        l ? (l.status==="unsent"?"No":"Yes") : "No", l?.sent_to_debi_at ? l.sent_to_debi_at.slice(0,10) : ""]; }) },
+  { key:"sponsorships", title:"Sponsorships",
+    cols:["First Name","Last Name","Organization","Address","Email","Phone Number","Sponsorship Date","Sponsorship Amount","Level","Campaign","Group","Contacted By","Thank You Note Sent?","Date Thank You Letter Sent to Debi"],
+    rows:(D.sponsors||[]).map(s=>[s.first_name||"",s.last_name||"",s.organization||"",s.address||"",s.email||"",s.phone||"",
+      s.sponsorship_date||"",s.amount??"",s.level||"",s.campaign||"",s.group_name||"",s.contacted_by||"",
+      s.thank_you_sent?"Yes":"No",""]) },
+  { key:"rsvps", title:"Gala RSVPs",
+    cols:["Title","First Name","Last Name","Address","Email","Phone Number","VIP?","Guest?","Number of Tickets","Amount","Names of Guests"],
+    rows:(D.rsvps||[]).map(r=>[r.title||"",r.first_name||"",r.last_name||"",r.address||"",r.email||"",r.phone||"",
+      r.is_vip?"Yes":"No",r.is_guest?"Yes":"No",r.num_tickets??"",r.amount??"",r.guest_names||""]) },
+  { key:"tuition", title:"Tuition Payments",
+    cols:["First Name","Last Name","Participant","Payment Date","Amount","Check Number","Notes"],
+    rows:(D.tuition||[]).map(t=>[t.first_name||"",t.last_name||"",t.participant||"",t.payment_date||"",t.amount??"",t.check_number||"",t.notes||""]) },
+  { key:"auction", title:"Auction Item Donations",
+    cols:["Donor Business","Contact Name","Email","Item Description","Market Value","Event"],
+    rows:(D.auction||[]).map(a=>[a.donor_business||"",a.contact_name||"",a.email||"",a.item_description||"",a.market_value??"",a.event_name||""]) },
+  { key:"outreach", title:"Sponsor Outreach",
+    cols:["Name","Organization","Email","Type","Attempted","Outcome","Notes"],
+    rows:(D.outreach||[]).map(o=>[o.donor_name||"",o.donor_organization||"",o.donor_email||"",o.attempt_type||"",
+      (o.attempted_at||"").slice(0,10),o.outcome||"",o.notes||""]) },
+];
+
+function renderRecords() {
+  $("panel-records").innerHTML = SHEETS().map(s => `
+    <div class="sec"><h2>${s.title}</h2>
+      <span class="pill pill-grey">${s.rows.length}</span>
+      <div class="spacer"></div>
+      <button class="btn btn-quiet btn-sm" data-csv="${s.key}">Download CSV</button></div>
+    ${s.rows.length ? `<div class="tablewrap"><table><thead><tr>${s.cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${s.rows.slice(0,200).map(r=>`<tr>${r.map((c,i)=>`<td class="${typeof c==="number"?"num":""}">${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+      ${s.rows.length>200?`<div class="meta">Showing the first 200. The CSV has all ${s.rows.length}.</div>`:""}`
+    : `<div class="empty"><p>Nothing recorded yet.</p></div>`}`).join("");
+}
+
+function downloadCSV(key) {
+  const s = SHEETS().find(x => x.key === key); if (!s) return;
+  const q = v => { const t = String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t; };
+  const csv = [s.cols.map(q).join(","), ...s.rows.map(r => r.map(q).join(","))].join("\r\n");
+  const url = URL.createObjectURL(new Blob(["\uFEFF"+csv], { type:"text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), {
+    href:url, download:`SPARC ${s.title} ${new Date().toISOString().slice(0,10)}.csv` });
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+// --------------------------------------------------------------- actions
+document.addEventListener("click", async e => {
+  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note]");
+  if (!t && e.target.id !== "noteAdd") return;
+  const btn = t || $("noteAdd");
+  const card = btn.closest(".card") || btn.closest(".notebox");
+  const out = card?.querySelector(".result");
+  const say = (c, m) => { if (out) out.innerHTML = `<div class="note ${c}">${esc(m)}</div>`; };
+  if (btn.dataset.csv) return downloadCSV(btn.dataset.csv);
+
+  btn.disabled = true;
+  try {
+    if (btn.dataset.save) {
+      const [table, id] = btn.dataset.save.split(":");
+      const fields = {};
+      card.querySelectorAll("[data-field]").forEach(el => { if (el.value !== "" && !el.dataset.field.startsWith("_")) fields[el.dataset.field] = el.value; });
+      if (!Object.keys(fields).length) { say("note-bad","Fill in a value first."); btn.disabled = false; return; }
+      await api("update", { table, id, fields });
+      say("note-ok","Saved."); card.classList.add("settled"); setTimeout(refresh, 650);
+    } else if (btn.dataset.dismiss) {
+      await api("dismiss", JSON.parse(btn.dataset.dismiss));
+      card.classList.add("settled"); setTimeout(refresh, 400);
+    } else if (e.target.id === "noteAdd") {
+      await api("note", { body: $("noteBody").value, tag: $("noteTag").value });
+      $("noteBody").value = ""; await refresh();
+    } else if (btn.dataset.note) {
+      const n = JSON.parse(btn.dataset.note);
+      await api("note", { body: n.body, tag: "follow_up", subject_label: n.label });
+      say("note-ok","Note added."); setTimeout(refresh, 500);
+    } else if (btn.dataset.noteDone)  { await api("note", { id: btn.dataset.noteDone, resolved: true }); await refresh(); }
+      else if (btn.dataset.noteOpen)  { await api("note", { id: btn.dataset.noteOpen, resolved: false }); await refresh(); }
+      else if (btn.dataset.noteDel)   { await api("note_delete", { id: btn.dataset.noteDel }); await refresh(); }
+      else if (btn.dataset.approve) {
+      const acct = card.querySelector('[data-field="_accountNumber"]')?.value;
+      await blm("approve", { id: btn.dataset.approve, ...(acct ? { payload_overrides:{ _accountNumber:Number(acct) } } : {}) });
+      say("note-ok","Pushed to Bloomerang."); card.classList.add("settled"); setTimeout(refresh, 800);
+    } else if (btn.dataset.reject) {
+      await blm("reject", { id: btn.dataset.reject, reason: prompt("Why reject this?") || "Not relevant" });
+      card.classList.add("settled"); setTimeout(refresh, 500);
+    } else if (btn.dataset.undo) {
+      if (confirm("Delete this record from Bloomerang?")) { await blm("undo", { id: btn.dataset.undo }); await refresh(); }
+      else btn.disabled = false;
+    } else if (btn.dataset.guestYes) {
+      await api("accept_guest", { id: btn.dataset.guestYes });
+      say("note-ok","Added to the RSVP list."); card.classList.add("settled"); setTimeout(refresh, 700);
+    } else if (btn.dataset.guestNo) {
+      await api("reject_guest", { id: btn.dataset.guestNo });
+      card.classList.add("settled"); setTimeout(refresh, 400);
+    }
+  } catch (err) { say("note-bad", err.message); btn.disabled = false; }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Never commit secrets
+.env
+.env.*
+*.pem
+*.key
+service-role*
+
+# Netlify
+.netlify/
+
+# Local junk
+.DS_Store
+Thumbs.db
+node_modules/
+*.log
+
+# Donor data must never land in the repo
+*.csv
+*.xlsx

@@ -1,0 +1,42 @@
+[build]
+  publish = "public"
+  command = ""
+
+# The dashboard is a single static page. All data comes from Supabase Edge
+# Functions at runtime; there is no build step and no server-side rendering.
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+    # This page shows donor names, addresses and gift amounts once signed in.
+    # Keep it out of every index.
+    X-Robots-Tag = "noindex, nofollow, noarchive"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Content-Security-Policy = """
+      default-src 'self';
+      script-src 'self' 'unsafe-inline';
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src https://fonts.gstatic.com;
+      img-src 'self' data:;
+      connect-src https://ldxpockcgcxvsrbyhcnt.supabase.co;
+      form-action 'self';
+      frame-ancestors 'none';
+      base-uri 'none';
+      object-src 'none'
+    """
+
+# index.html must never be cached, or a deploy will not reach anyone who has
+# the page open.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

@@ -176,11 +176,19 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
 async function call(url, action, body = {}) {
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type":"application/json", ...(TOKEN ? { Authorization:`Bearer ${TOKEN}` } : {}) },
-    body: JSON.stringify({ action, ...body }),
-  });
+  let r;
+  try {
+    r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type":"application/json", ...(TOKEN ? { Authorization:`Bearer ${TOKEN}` } : {}) },
+      body: JSON.stringify({ action, ...body }),
+    });
+  } catch {
+    // fetch rejects only when the request never reached the server.
+    const err = new Error("Can't reach the server. Check your connection and try again.");
+    err.offline = true;
+    throw err;
+  }
   const out = await r.json().catch(() => ({ error:"The server sent something unreadable." }));
   if (!r.ok) { const err = new Error(out.error || `Request failed (${r.status}).`); err.status = r.status; throw err; }
   return out;
@@ -238,7 +246,35 @@ document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () =>
 async function refresh() {
   ["questions","notes","bloomerang","records"].forEach(p => $("panel-"+p).innerHTML = `<div class="loading">Loading…</div>`);
   try { D = await api("dashboard"); render(); }
-  catch (e) { $("panel-"+TAB).innerHTML = `<div class="msg msg-bad">${esc(e.message)}</div>`; }
+  catch (e) {
+    // 401 means the session is gone: return to sign-in rather than offering a
+    // retry that can only fail. Anything else is treated as "server
+    // unreachable" — show one failure state across every panel with a retry.
+    if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
+    showFailure(e);
+  }
+}
+
+function backToSignin(msg) {
+  clearSession();
+  $("appView").classList.add("hidden");
+  $("signinView").classList.remove("hidden");
+  $("signinMsg").innerHTML = msg ? `<div class="msg msg-bad">${esc(msg)}</div>` : "";
+  $("password").value = "";
+}
+
+function showFailure(e) {
+  $("lede").textContent = "Can't reach the server.";
+  $("ledeSub").textContent = "Nothing has been lost. This is usually a brief network problem.";
+  ["cQ","cN","cB","cR"].forEach(id => $(id).textContent = "—");
+  const detail = e && e.message ? e.message : "";
+  const html = `<div class="empty">
+      <b>The dashboard couldn't load.</b>
+      <p>The server didn't answer. Try again in a moment.${detail ? `<br><span class="meta">${esc(detail)}</span>` : ""}</p>
+      <div class="controls" style="justify-content:center;margin-top:14px">
+        <button class="btn btn-sm" data-retry="1">Try again</button>
+      </div></div>`;
+  ["questions","notes","bloomerang","records"].forEach(p => $("panel-"+p).innerHTML = html);
 }
 
 function render() {
@@ -443,13 +479,14 @@ function downloadCSV(key) {
 
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note]");
+  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note]");
   if (!t && e.target.id !== "noteAdd") return;
   const btn = t || $("noteAdd");
   const card = btn.closest(".card") || btn.closest(".notebox");
   const out = card?.querySelector(".result");
   const say = (c, m) => { if (out) out.innerHTML = `<div class="note ${c}">${esc(m)}</div>`; };
   if (btn.dataset.csv) return downloadCSV(btn.dataset.csv);
+  if (btn.dataset.retry) return refresh();
 
   btn.disabled = true;
   try {

@@ -25,6 +25,26 @@ change locally changes the real records.** There is no staging environment.
 Netlify project `sparc-donor-ops`, publishing from `public/`, no build command.
 Pushing to `main` deploys to production. Branch pushes create previews.
 
+The dashboard is reachable at three URLs, all served by this one deploy:
+
+- `https://sparcsolutions.org/devdash` — how staff reach it. The `sparcwebsite`
+  repo proxies `/devdash` and `/devdash/*` here in its `netlify.toml`; nothing
+  is copied and there is no second deploy.
+- `https://sparc-donor-ops.netlify.app/devdash/` — this project directly.
+- `https://sparc-donor-ops.netlify.app/` — the catch-all serves the same page.
+
+**Because of that first URL, the page is served from `public/devdash/` and its
+asset references must be absolute and carry that base path** —
+`href="/devdash/app.css"`, `url(/devdash/fonts/inter-latin.woff2)`.
+
+The base path is not decoration. `sparcsolutions.org/devdash` has no trailing
+slash, so a relative `app.css` resolves to `sparcsolutions.org/app.css` — the
+marketing site's root — and the page loads unstyled. Adding a redirect to the
+trailing-slash form does not help: Netlify matches `/devdash` and `/devdash/`
+as the same path, so such a rule redirects to itself forever. Absolute
+`/devdash/...` paths resolve correctly either way. If you add an image, font or
+script, give it the `/devdash/` prefix too.
+
 ## Layout
 
 ```

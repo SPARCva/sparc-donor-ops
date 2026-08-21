@@ -4,6 +4,13 @@
 
 # The dashboard is a single static page. All data comes from Supabase Edge
 # Functions at runtime; there is no build step and no server-side rendering.
+#
+# The page lives under public/devdash/ and references its assets as
+# /devdash/app.css, /devdash/app.js and /devdash/fonts/*. That base path is
+# what lets the main website proxy it at sparcsolutions.org/devdash: absolute
+# paths resolve to the same place with or without a trailing slash, where
+# relative ones would break on sparcsolutions.org/devdash. Serving from the
+# root of this project still works — see the catch-all at the bottom.
 
 [[headers]]
   for = "/*"
@@ -36,26 +43,29 @@
 # index.html, app.js and app.css must never be cached, or a deploy will not
 # reach anyone who has the page open. Fonts are content-stable and may cache.
 [[headers]]
-  for = "/index.html"
+  for = "/devdash/index.html"
   [headers.values]
     Cache-Control = "no-store, max-age=0"
 
 [[headers]]
-  for = "/app.js"
+  for = "/devdash/app.js"
   [headers.values]
     Cache-Control = "no-store, max-age=0"
 
 [[headers]]
-  for = "/app.css"
+  for = "/devdash/app.css"
   [headers.values]
     Cache-Control = "no-store, max-age=0"
 
 [[headers]]
-  for = "/fonts/*"
+  for = "/devdash/fonts/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
+# Anything not matching a real file serves the dashboard, so this project's own
+# root URL (sparc-donor-ops.netlify.app) still opens it. force is left off, so
+# /devdash/app.css and /robots.txt are served as themselves.
 [[redirects]]
   from = "/*"
-  to = "/index.html"
+  to = "/devdash/index.html"
   status = 200

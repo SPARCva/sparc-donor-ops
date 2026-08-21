@@ -25,6 +25,19 @@ change locally changes the real records.** There is no staging environment.
 Netlify project `sparc-donor-ops`, publishing from `public/`, no build command.
 Pushing to `main` deploys to production. Branch pushes create previews.
 
+The dashboard is reachable at two URLs, both served by this one deploy:
+
+- `https://sparc-donor-ops.netlify.app/` — the Netlify project directly.
+- `https://sparcsolutions.org/devdash/` — the same files, proxied through the
+  main website. The `sparcwebsite` repo rewrites `/devdash/*` here in its
+  `netlify.toml`; nothing is copied and there is no second deploy.
+
+**Because of that second URL, every asset reference in `public/` must stay
+relative** — `href="app.css"`, `url(fonts/inter-latin.woff2)`, never a leading
+slash. A root-relative path resolves against `sparcsolutions.org/` under the
+proxy and loads the wrong file (or nothing). If you add an image, font or
+script, reference it relative to the file that points at it.
+
 ## Layout
 
 ```

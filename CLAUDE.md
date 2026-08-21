@@ -74,6 +74,13 @@ already declared at the top of the script block in `index.html`.
 Netlify builds from `main`. `publish = "public"`, no build command. A push to
 `main` is a production deploy. Preview deploys on branches.
 
+The same deploy is also served at `https://sparcsolutions.org/devdash/`, via a
+proxy rewrite in the `sparcwebsite` repo's `netlify.toml`. Consequence for any
+change in `public/`: **asset references must be relative, never root-relative.**
+`href="app.css"` and `url(fonts/inter-latin.woff2)` work at both URLs; a leading
+slash resolves against the marketing site under the proxy and breaks. Do not
+"tidy" these back into absolute paths.
+
 Before pushing anything to `main`, confirm the change with Erica — this is a
 live tool she relies on daily, and there is no staging data.
 

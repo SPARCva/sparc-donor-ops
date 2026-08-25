@@ -48,7 +48,10 @@ script, give it the `/devdash/` prefix too.
 ## Layout
 
 ```
-public/index.html    the entire application
+public/devdash/index.html   markup
+public/devdash/app.css      styles
+public/devdash/app.js       the application
+public/devdash/fonts/       self-hosted Archivo and Inter
 netlify.toml         publish settings and security headers
 CLAUDE.md            working instructions for Claude Code
 docs/BACKEND.md      Edge Function endpoints, actions, editable columns

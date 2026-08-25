@@ -1,4 +1,4 @@
-# SPARC Donor Operations
+# SPARC Development Dashboard
 
 Internal dashboard for SPARC's development office. Shows what is waiting on a
 decision — gifts missing a donor, sponsorships whose amount does not match their

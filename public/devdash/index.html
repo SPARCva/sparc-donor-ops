@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>SPARC — Donor Operations</title>
+<title>SPARC — Development Dashboard</title>
 <link rel="stylesheet" href="/devdash/app.css">
 </head>
 <body>
 
 <div class="signin-wrap" id="signinView">
   <form class="signin" id="signinForm">
-    <div class="mark"><b>SPARC</b><span>Donor Operations</span></div>
+    <div class="mark"><b>SPARC</b><span>Development Dashboard</span></div>
     <p class="signin-sub">Sign in to see what is waiting on a decision.</p>
     <div id="signinMsg"></div>
     <label for="email">Email</label>
@@ -24,7 +24,7 @@
 
 <div id="appView" class="hidden">
   <div class="topbar"><div class="topbar-in">
-    <div class="mark"><b>SPARC</b><span>Donor Operations</span></div>
+    <div class="mark"><b>SPARC</b><span>Development Dashboard</span></div>
     <div class="who"><span id="whoName"></span> ·
       <button class="link" id="pwBtn">Change password</button> ·
       <button class="link" id="signoutBtn">Sign out</button></div>
@@ -34,16 +34,20 @@
     <div class="lede"><h1 id="lede">Loading…</h1><p id="ledeSub"></p></div>
 
     <div class="tabs" role="tablist">
-      <button class="tab" role="tab" data-tab="questions" aria-selected="true">Needs an answer<span class="pill pill-amber" id="cQ">0</span></button>
+      <button class="tab" role="tab" data-tab="today" aria-selected="true">Today<span class="pill pill-amber" id="cT">0</span></button>
+      <button class="tab" role="tab" data-tab="questions" aria-selected="false">Needs an answer<span class="pill pill-amber" id="cQ">0</span></button>
       <button class="tab" role="tab" data-tab="notes" aria-selected="false">My notes<span class="pill pill-blue" id="cN">0</span></button>
       <button class="tab" role="tab" data-tab="bloomerang" aria-selected="false">Bloomerang<span class="pill pill-blue" id="cB">0</span></button>
       <button class="tab" role="tab" data-tab="records" aria-selected="false">Records<span class="pill pill-grey" id="cR">0</span></button>
+      <button class="tab" role="tab" data-tab="completed" aria-selected="false">Completed<span class="pill pill-grey" id="cC">0</span></button>
     </div>
 
-    <section id="panel-questions"></section>
+    <section id="panel-today"></section>
+    <section id="panel-questions" class="hidden"></section>
     <section id="panel-notes" class="hidden"></section>
     <section id="panel-bloomerang" class="hidden"></section>
     <section id="panel-records" class="hidden"></section>
+    <section id="panel-completed" class="hidden"></section>
   </main>
 </div>
 

@@ -1,4 +1,4 @@
-# CLAUDE.md — SPARC Donor Operations
+# CLAUDE.md — SPARC Development Dashboard
 
 Instructions for Claude Code working in this repo. Read this before changing anything.
 

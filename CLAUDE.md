@@ -14,19 +14,21 @@ It is not public-facing.
 
 ## Architecture
 
-- **Frontend:** one static file, `public/index.html`. Vanilla JS, no framework,
-  no build step, no bundler, no npm dependencies. Fonts come from Google Fonts.
+- **Frontend:** three static files under `public/devdash/` — `index.html`,
+  `app.css`, `app.js`. Vanilla JS, no framework, no build step, no bundler, no
+  npm dependencies. Fonts are self-hosted `.woff2` in `public/devdash/fonts/`;
+  there is no Google Fonts request, and the CSP has no off-domain font host.
 - **Backend:** Supabase Edge Functions, project ref `ldxpockcgcxvsrbyhcnt`.
   Deployed and live — see `docs/BACKEND.md`. **This repo does not contain the
   backend.** Do not attempt to modify Edge Functions from here.
 - **Hosting:** Netlify project `sparc-donor-ops`
   (site id `3afeba34-e865-4e35-a30e-27a59dce6b30`, team id
-  `6980b8c5cb88ed7684233e75`). Currently no successful deploy — the first
-  deploy from this repo is task 1 in `docs/TASKS.md`.
+  `6980b8c5cb88ed7684233e75`). Deployed and live since 21 Aug 2026 at
+  https://sparc-donor-ops.netlify.app and at https://sparcsolutions.org/devdash.
 
 Frontend talks to the backend over `POST` with a JSON `{ action, ...body }`
 envelope and a `Bearer` token in the `Authorization` header. Both endpoints are
-already declared at the top of the script block in `index.html`.
+already declared at the top of `public/devdash/app.js`.
 
 ## Hard rules
 
@@ -39,8 +41,8 @@ already declared at the top of the script block in `index.html`.
    client, do not add a "remember me" that stores a raw password, do not
    disable the 8-hour session expiry.
 3. **Do not add a build step or a framework** without being asked. The whole
-   point of one file is that Erica can open it, read it, and hand it to someone
-   else. If a change seems to require React, propose it first.
+   point of three plain files is that Erica can open them, read them, and hand
+   them to someone else. If a change seems to require React, propose it first.
 4. **Do not silently overwrite staff work.** The backend enforces this
    (`logo_locked` on sponsorships, `question_dismissals`). Any UI change must
    respect it — never build a bulk action that blows past a lock.
@@ -51,7 +53,7 @@ already declared at the top of the script block in `index.html`.
    asks. That is the entire product. Do not add defaults, placeholders, or
    inferred values that look like real records.
 
-## Conventions in `public/index.html`
+## Conventions in `public/devdash/`
 
 - Colours are CSS custom properties on `:root` (`--ink`, `--paper`, `--green`,
   `--blue`, `--amber`, `--red` and their `-soft` pairs). Use them; do not
@@ -75,8 +77,8 @@ Netlify builds from `main`. `publish = "public"`, no build command. A push to
 `main` is a production deploy. Preview deploys on branches.
 
 The same deploy is also served at `https://sparcsolutions.org/devdash`, via a
-proxy rewrite in the `sparcwebsite` repo's `netlify.toml`. That is the URL staff
-use. Consequence for any change in `public/`: the page lives in
+`status = 200` proxy rewrite in the `sparcwebsite` repo's `netlify.toml`. That
+is the URL staff use. Consequence for any change in `public/`: the page lives in
 `public/devdash/` and **every asset reference must be absolute and start with
 `/devdash/`** — `href="/devdash/app.css"`,
 `url(/devdash/fonts/inter-latin.woff2)`.
@@ -93,4 +95,4 @@ live tool she relies on daily, and there is no staging data.
 
 ## Where to start
 
-`docs/TASKS.md`, in order. Task 1 is getting a first deploy to land.
+`docs/TASKS.md`, in order. Task 1 (first deploy) landed on 21 Aug 2026.

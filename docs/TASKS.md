@@ -5,10 +5,13 @@ batch them into a single pull request.
 
 ---
 
-## 1. Land the first deploy
+## 1. Land the first deploy — done 21 Aug 2026
 
-The Netlify project `sparc-donor-ops` exists but has never received a
-successful deploy, so `sparc-donor-ops.netlify.app` currently serves nothing.
+The Netlify project `sparc-donor-ops` is connected to this repo and deploying.
+`sparc-donor-ops.netlify.app` serves the dashboard, as does
+`sparcsolutions.org/devdash` via the proxy rewrite in `sparcwebsite`.
+
+Kept for the record; the steps below are what was verified.
 
 - Connect this repo to the existing Netlify project. Do **not** create a new
   site — the id is in `CLAUDE.md`.

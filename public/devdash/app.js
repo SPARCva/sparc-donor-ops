@@ -1,6 +1,10 @@
 const OPS = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/donor-ops";
 const BLM = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/bloomerang";
-let TOKEN = null, USER = null, D = null, TAB = "questions";
+const TSK = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/tasks";
+let TOKEN = null, USER = null, D = null, TAB = "today";
+// Today and Completed load from their own endpoint, so they keep their own
+// state rather than hanging off the donor-ops dashboard payload.
+let T = null, C = null, CFROM = null, CTO = null;
 
 // Session lives in sessionStorage, never localStorage: this is donor data on a
 // shared office machine, so the session must die with the tab. We keep the
@@ -45,6 +49,7 @@ async function call(url, action, body = {}) {
 }
 const api = (a, b) => call(OPS, a, b);
 const blm = (a, b) => call(BLM, a, b);
+const tsk = (a, b) => call(TSK, a, b);
 
 const money = n => n == null ? "—" : "$" + Number(n).toLocaleString("en-US",
   { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 });
@@ -90,11 +95,18 @@ $("pwBtn").addEventListener("click", async () => {
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
   TAB = t.dataset.tab;
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x === t)));
-  ["questions","notes","bloomerang","records"].forEach(p => $("panel-"+p).classList.toggle("hidden", p !== TAB));
+  PANELS.forEach(p => $("panel-"+p).classList.toggle("hidden", p !== TAB));
+  // Completed is not part of the dashboard payload, so it fetches on first
+  // view rather than on every refresh.
+  if (TAB === "completed" && !C) loadCompleted();
+  updateLede();
 }));
 
+const PANELS = ["today","questions","notes","bloomerang","records","completed"];
+
 async function refresh() {
-  ["questions","notes","bloomerang","records"].forEach(p => $("panel-"+p).innerHTML = `<div class="loading">Loading…</div>`);
+  PANELS.forEach(p => $("panel-"+p).innerHTML = `<div class="loading">Loading…</div>`);
+  loadToday();
   try { D = await api("dashboard"); render(); }
   catch (e) {
     // 401 means the session is gone: return to sign-in rather than offering a
@@ -124,16 +136,46 @@ function showFailure(e) {
       <div class="controls controls-center">
         <button class="btn btn-sm" data-retry="1">Try again</button>
       </div></div>`;
+  // Today and Completed have their own endpoint and their own failure state;
+  // a donor-ops outage should not blank a task list that loaded fine.
   ["questions","notes","bloomerang","records"].forEach(p => $("panel-"+p).innerHTML = html);
+}
+
+// The lede sits above every panel, so it has to describe whichever tab is
+// open. Reading it from the donor-ops payload alone announced "Nothing is
+// waiting on you." over a Today list with five open asks.
+function updateLede() {
+  const lede = $("lede"), sub = $("ledeSub");
+  if (TAB === "today") {
+    if (!T) { lede.textContent = "Loading…"; sub.textContent = ""; return; }
+    const n = T.counts.open;
+    lede.textContent = n === 0 ? "Nothing is waiting on you." :
+      `${n} ${n === 1 ? "task" : "tasks"} open.`;
+    sub.textContent = n === 0
+      ? "No open asks from Debi."
+      : (T.counts.over_7_days > 0
+          ? `${T.counts.over_7_days} of them ${T.counts.over_7_days === 1 ? "has" : "have"} been open more than a week.`
+          : "Oldest ask first.");
+    return;
+  }
+  if (TAB === "completed") {
+    const n = C ? (C.rows || []).length : 0;
+    lede.textContent = n === 0 ? "Nothing completed in this range." : `${n} completed.`;
+    sub.textContent = "Grouped by the day the box was ticked.";
+    return;
+  }
+  if (!D) { lede.textContent = "Loading…"; sub.textContent = ""; return; }
+  const q = D.counts.flags;
+  lede.textContent = q === 0 ? "Nothing is waiting on you." :
+    `${q} ${q === 1 ? "thing needs" : "things need"} an answer.`;
+  sub.textContent = q === 0
+    ? "Every gift on file has a donor, a designation and an amount."
+    : "Each one is blocking a thank-you letter or a Bloomerang record.";
 }
 
 function render() {
   const q = D.counts.flags;
-  $("lede").textContent = q === 0 ? "Nothing is waiting on you." :
-    `${q} ${q === 1 ? "thing needs" : "things need"} an answer.`;
-  $("ledeSub").textContent = q === 0
-    ? "Every gift on file has a donor, a designation and an amount."
-    : "Each one is blocking a thank-you letter or a Bloomerang record.";
+  updateLede();
   $("cQ").textContent = q;
   $("cN").textContent = D.counts.notes;
   $("cB").textContent = D.counts.bloomerang;
@@ -327,11 +369,220 @@ function downloadCSV(key) {
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
+
+// ------------------------------------------------------------------ Today
+// What Debi has asked for, oldest ask first. Her numbered lists arrive as one
+// row per number and keep her numbering, because she expects each answered
+// separately.
+
+const GMAIL_THREAD = id => "https://mail.google.com/mail/u/0/#all/" + encodeURIComponent(id);
+
+async function loadToday() {
+  try { T = await tsk("list"); renderToday(); updateLede(); }
+  catch (e) {
+    if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
+    $("cT").textContent = "—";
+    $("panel-today").innerHTML = `<div class="empty">
+      <b>The task list couldn't load.</b>
+      <p>Nothing has been lost.${e.message ? `<br><span class="meta">${esc(e.message)}</span>` : ""}</p>
+      <div class="controls controls-center"><button class="btn btn-sm" data-today-retry="1">Try again</button></div>
+    </div>`;
+  }
+}
+
+function taskRow(t) {
+  const done = t.status === "done";
+  const flags = [];
+  // Asked more than once. Debi re-asks when something has gone quiet, so this
+  // is the strongest signal on the row.
+  if ((t.ask_count || 1) > 1) flags.push(`<span class="flag flag-ask">Asked ×${t.ask_count}</span>`);
+  if (!done && t.days_open > 7) flags.push(`<span class="flag flag-old">${t.days_open} days</span>`);
+  if (t.due_at) flags.push(`<span class="flag flag-due">Due ${day(t.due_at)}</span>`);
+
+  const who = t.requested_by === "debi@sparcsolutions.org" ? "Debi" : esc(t.requested_by);
+  const idx = t.list_index ? `<span class="idx">#${esc(t.list_index)}</span>` : "";
+
+  return `<div class="task${done ? " done" : ""}" data-task="${t.id}">
+    <input class="task-check" type="checkbox" ${done ? "checked" : ""}
+           data-check="${t.id}" aria-label="Mark done: ${esc(t.title)}">
+    <div>
+      <div class="task-title">${esc(t.title)}</div>
+      <div class="task-meta">
+        ${idx}<span>${who}</span><span>${day(t.requested_at)}</span>
+        ${flags.join("")}
+        ${t.source_quote ? `<button class="quote-toggle" data-quote="${t.id}">Her words</button>` : ""}
+        ${t.source_thread_id ? `<a href="${esc(GMAIL_THREAD(t.source_thread_id))}" target="_blank" rel="noopener">Open thread</a>` : ""}
+      </div>
+      ${t.detail ? `<div class="task-detail">${esc(t.detail)}</div>` : ""}
+      ${t.source_quote ? `<div class="task-quote hidden" id="q${t.id}">“${esc(t.source_quote)}”</div>` : ""}
+    </div>
+    <div class="task-side">
+      <button class="task-x" data-del="${t.id}"
+              title="Delete — will not appear in Completed" aria-label="Delete task">×</button>
+    </div>
+  </div>`;
+}
+
+function renderToday() {
+  const c = T.counts;
+  $("cT").textContent = c.open;
+
+  const when = T.last_scan_at
+    ? `Last scan ${day(T.last_scan_at)}, ${new Date(T.last_scan_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
+    : "No scan has run yet";
+
+  const rows = T.tasks.length
+    ? T.tasks.map(taskRow).join("")
+    : `<div class="empty"><b>Nothing is waiting on you.</b>
+         <p>No open asks from Debi. The next scan runs at 8am, noon and 5pm.</p></div>`;
+
+  $("panel-today").innerHTML = `
+    <div class="scanbar">
+      <h2>${esc(day(T.today))}</h2>
+      <span class="meta">${esc(when)}${T.last_scan_error ? " · last scan reported a problem" : ""}</span>
+    </div>
+    ${T.last_scan_error ? `<div class="note note-bad">Last scan: ${esc(String(T.last_scan_error).slice(0, 300))}</div>` : ""}
+    <div class="tiles">
+      <div class="tile"><b>${c.open}</b><span>Open</span></div>
+      <div class="tile tile-green"><b>${c.done_today}</b><span>Done today</span></div>
+      <div class="tile tile-red"><b>${c.over_7_days}</b><span>Over 7 days</span></div>
+      <div class="tile tile-amber"><b>${c.asked_twice}</b><span>Asked twice</span></div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-quiet btn-sm" data-tcsv="day">Download today</button>
+      <button class="btn btn-quiet btn-sm" data-tcsv="week">Download week</button>
+      <span class="spacer"></span>
+      <button class="btn btn-sm" data-scan="1">Scan now</button>
+    </div>
+    <div class="result note-controls"></div>
+    ${rows}`;
+}
+
+// -------------------------------------------------------------- Completed
+async function loadCompleted() {
+  const to = CTO || (T && T.today) || new Date().toISOString().slice(0, 10);
+  const from = CFROM || new Date(new Date(to + "T12:00:00Z").getTime() - 13 * 86400000).toISOString().slice(0, 10);
+  CFROM = from; CTO = to;
+  try { C = await tsk("completed", { from, to }); renderCompleted(); updateLede(); }
+  catch (e) {
+    if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
+    $("panel-completed").innerHTML = `<div class="empty"><b>Couldn't load completed tasks.</b>
+      <p><span class="meta">${esc(e.message)}</span></p></div>`;
+  }
+}
+
+function renderCompleted() {
+  const rows = C.rows || [];
+  $("cC").textContent = rows.length;
+
+  // Grouped by the day the box was ticked, newest first.
+  const byDay = new Map();
+  rows.forEach(r => { if (!byDay.has(r.completed_on)) byDay.set(r.completed_on, []); byDay.get(r.completed_on).push(r); });
+
+  const groups = [...byDay.entries()].map(([d, items]) => `
+    <div class="daygroup">
+      <h3>${esc(day(d))} · ${items.length} ${items.length === 1 ? "task" : "tasks"}</h3>
+      ${items.map(r => `<div class="task">
+        <span class="task-check" aria-hidden="true">✓</span>
+        <div>
+          <div class="task-title">${esc(r.title)}</div>
+          <div class="task-meta">
+            <span>${r.requested_by === "debi@sparcsolutions.org" ? "Debi" : esc(r.requested_by || "—")}</span>
+            <span>asked ${day(r.requested_at)}</span>
+          </div>
+          ${r.source_quote ? `<div class="task-quote">“${esc(r.source_quote)}”</div>` : ""}
+        </div><span></span>
+      </div>`).join("")}
+    </div>`).join("");
+
+  $("panel-completed").innerHTML = `
+    <div class="controls">
+      <label for="cFrom" class="hidden">From</label>
+      <input class="field med" id="cFrom" type="date" value="${esc(CFROM)}">
+      <label for="cTo" class="hidden">To</label>
+      <input class="field med" id="cTo" type="date" value="${esc(CTO)}">
+      <button class="btn btn-sm" data-crange="1">Show</button>
+      <span class="spacer"></span>
+      <button class="btn btn-quiet btn-sm" data-tcsv="day">Download day</button>
+      <button class="btn btn-quiet btn-sm" data-tcsv="week">Download week</button>
+    </div>
+    <div class="result note-controls"></div>
+    ${rows.length ? groups : `<div class="empty"><b>Nothing completed in this range.</b>
+      <p>Tasks appear here after the 5pm sweep on the day they were ticked.</p></div>`}`;
+}
+
+// A task CSV. Quotes are doubled and every field is quoted, because
+// source_quote is Debi's prose and reliably contains commas and line breaks.
+function taskCSV(rows, name) {
+  const cols = ["completed_on", "title", "detail", "source_quote", "requested_by", "requested_at"];
+  const cell = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const csv = [cols.join(","), ...rows.map(r => cols.map(c => cell(r[c])).join(","))].join("\r\n");
+  // BOM so Excel opens the accented names and curly quotes correctly.
+  const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note]");
+  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry]");
   if (!t && e.target.id !== "noteAdd") return;
   const btn = t || $("noteAdd");
+
+  // ---- Today and Completed. Handled before the donor-ops branches because
+  // these read from their own endpoint and their own state.
+  if (btn.dataset.todayRetry) return loadToday();
+  if (btn.dataset.quote) { $("q" + btn.dataset.quote)?.classList.toggle("hidden"); return; }
+  if (btn.dataset.crange) {
+    CFROM = $("cFrom").value || CFROM; CTO = $("cTo").value || CTO;
+    return loadCompleted();
+  }
+  if (btn.dataset.tcsv) {
+    const scope = btn.dataset.tcsv;
+    const date = (TAB === "completed" ? CTO : (T && T.today)) || new Date().toISOString().slice(0, 10);
+    try {
+      const r = await tsk("export", { scope, date });
+      if (!r.rows.length) { alert("Nothing completed in that range yet."); return; }
+      taskCSV(r.rows, `SPARC tasks ${scope === "week" ? r.from + " to " + r.to : r.to}.csv`);
+    } catch (err) { alert(err.message); }
+    return;
+  }
+  if (btn.dataset.check) {
+    const id = btn.dataset.check;
+    const row = btn.closest(".task");
+    // Toggle the row immediately; the box is already visually checked and
+    // waiting for a round trip makes it feel broken.
+    row?.classList.toggle("done", btn.checked);
+    try { await tsk("check", { id: Number(id), checked: btn.checked }); await loadToday(); }
+    catch (err) { row?.classList.toggle("done", !btn.checked); btn.checked = !btn.checked; alert(err.message); }
+    return;
+  }
+  if (btn.dataset.del) {
+    const row = btn.closest(".task");
+    if (!confirm("Delete this task? It will not appear in Completed.")) return;
+    btn.disabled = true;
+    try {
+      await tsk("delete", { id: Number(btn.dataset.del) });
+      row?.classList.add("going");
+      setTimeout(loadToday, 220);
+    } catch (err) { btn.disabled = false; alert(err.message); }
+    return;
+  }
+  if (btn.dataset.scan) {
+    btn.disabled = true; const label = btn.textContent; btn.textContent = "Scanning…";
+    const out = $("panel-today").querySelector(".result");
+    try {
+      const r = await tsk("scan", { max_extractions: 12 });
+      if (out) out.innerHTML = `<div class="note ${r.error ? "note-bad" : "note-ok"}">${
+        esc(r.error ? "Scan failed: " + r.error
+          : `${r.messages_seen} messages read, ${r.tasks_created} new, ${r.duplicates_matched} already on the list.`
+            + (r.complete ? "" : " More to read — run it again."))}</div>`;
+      await loadToday();
+    } catch (err) { if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; }
+    btn.disabled = false; btn.textContent = label;
+    return;
+  }
+
   const card = btn.closest(".card") || btn.closest(".notebox");
   const out = card?.querySelector(".result");
   const say = (c, m) => { if (out) out.innerHTML = `<div class="note ${c}">${esc(m)}</div>`; };

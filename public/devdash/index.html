@@ -34,16 +34,20 @@
     <div class="lede"><h1 id="lede">Loading…</h1><p id="ledeSub"></p></div>
 
     <div class="tabs" role="tablist">
-      <button class="tab" role="tab" data-tab="questions" aria-selected="true">Needs an answer<span class="pill pill-amber" id="cQ">0</span></button>
+      <button class="tab" role="tab" data-tab="today" aria-selected="true">Today<span class="pill pill-amber" id="cT">0</span></button>
+      <button class="tab" role="tab" data-tab="questions" aria-selected="false">Needs an answer<span class="pill pill-amber" id="cQ">0</span></button>
       <button class="tab" role="tab" data-tab="notes" aria-selected="false">My notes<span class="pill pill-blue" id="cN">0</span></button>
       <button class="tab" role="tab" data-tab="bloomerang" aria-selected="false">Bloomerang<span class="pill pill-blue" id="cB">0</span></button>
       <button class="tab" role="tab" data-tab="records" aria-selected="false">Records<span class="pill pill-grey" id="cR">0</span></button>
+      <button class="tab" role="tab" data-tab="completed" aria-selected="false">Completed<span class="pill pill-grey" id="cC">0</span></button>
     </div>
 
-    <section id="panel-questions"></section>
+    <section id="panel-today"></section>
+    <section id="panel-questions" class="hidden"></section>
     <section id="panel-notes" class="hidden"></section>
     <section id="panel-bloomerang" class="hidden"></section>
     <section id="panel-records" class="hidden"></section>
+    <section id="panel-completed" class="hidden"></section>
   </main>
 </div>
 

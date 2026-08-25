@@ -96,6 +96,44 @@
   .noterow{background:#fff;border:1px solid var(--rule);border-radius:10px;padding:13px 16px;margin-bottom:9px;box-shadow:var(--shadow)}
   .noterow.done{opacity:.55}
   .noterow p{margin:0 0 7px;white-space:pre-wrap}
+  /* ------------------------------------------------------------- Today */
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:0 0 18px}
+  .tile{background:var(--card);border:1px solid var(--rule);border-radius:10px;padding:13px 15px}
+  .tile b{display:block;font-family:Archivo;font-weight:700;font-size:26px;letter-spacing:-.02em;line-height:1.1}
+  .tile span{display:block;font-size:12px;color:var(--ink-60);margin-top:3px}
+  .tile-amber b{color:var(--amber)} .tile-red b{color:var(--red)} .tile-green b{color:var(--green)}
+
+  .scanbar{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 14px;margin:0 0 14px}
+  .scanbar .meta{margin:0}
+
+  .task{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start;
+        background:var(--card);border:1px solid var(--rule);border-radius:10px;
+        padding:12px 14px;margin-bottom:8px;transition:opacity .2s,transform .2s}
+  /* Checked rows stay exactly where they are until the 17:00 sweep. Moving a
+     row the moment it is ticked loses the reader's place in the list. */
+  .task.done .task-title{text-decoration:line-through}
+  .task.done{opacity:.42}
+  .task.going{opacity:0;transform:translateY(-4px)}
+  .task-check{width:19px;height:19px;margin:2px 0 0;accent-color:var(--green);cursor:pointer;flex:none}
+  .task-title{font-weight:600;line-height:1.4}
+  .task-meta{font-size:12.5px;color:var(--ink-60);margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center}
+  .task-quote{margin-top:8px;font-size:13.5px;color:var(--ink-60);border-left:2px solid var(--rule);
+              padding-left:10px;font-style:italic}
+  .task-detail{margin-top:6px;font-size:13.5px;color:var(--ink-60)}
+  .task-side{display:flex;align-items:center;gap:6px}
+  .task-x{border:0;background:none;color:var(--ink-40);font-size:19px;line-height:1;padding:2px 6px;border-radius:6px}
+  .task-x:hover{color:var(--red);background:var(--red-soft)}
+  .idx{font-family:Archivo;font-weight:700;color:var(--ink-40);font-size:12.5px}
+  .quote-toggle{border:0;background:none;color:var(--blue);padding:0;font-size:12.5px;text-decoration:underline}
+
+  .flag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;white-space:nowrap}
+  .flag-ask{background:var(--amber-soft);color:var(--amber)}
+  .flag-old{background:var(--red-soft);color:var(--red)}
+  .flag-due{background:var(--blue-soft);color:var(--blue)}
+
+  .daygroup{margin:0 0 20px}
+  .daygroup h3{font-size:14px;margin:0 0 8px;color:var(--ink-60)}
+
   @media (max-width:620px){
     .card{grid-template-columns:48px 1fr;gap:12px;padding:14px}
     .wait b{font-size:23px} main{padding:20px 15px 70px}
@@ -109,6 +147,18 @@
        comfortable tap targets. */
     .controls .spacer{display:none;flex-basis:0}
     .controls{gap:8px 10px}
+    /* Four tiles across is unreadable on a phone; two rows of two is not. */
+    /* Six tabs do not fit on a phone. .tabs scrolls horizontally with the
+       scrollbar hidden, so the last tabs were reachable but invisible — there
+       was nothing to suggest Completed existed. Wrapping shows all of them. */
+    .tabs{flex-wrap:wrap;overflow-x:visible;gap:2px 4px;padding-bottom:2px}
+    .tab{padding-left:9px;padding-right:9px}
+    .tiles{grid-template-columns:1fr 1fr;gap:8px}
+    .tile b{font-size:22px}
+    .task{padding:11px 12px;gap:10px}
+    /* The delete button keeps its own column so a thumb aimed at it never
+       lands on the checkbox. */
+    .task-side{flex-direction:column;gap:2px}
     .controls .btn{flex:1 1 auto}
     .controls .field.wide,.controls .field.med{width:100%;min-width:0}
   }

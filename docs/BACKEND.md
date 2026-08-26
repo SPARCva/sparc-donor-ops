@@ -22,7 +22,8 @@ Base URL: `https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/<slug>`
 | `donations-view` | Read-only donation views |
 | `bloomerang-ack` | Acknowledgement writeback |
 | `bloomerang-attach` | Attaches letters and documents to Bloomerang records |
-| `gala-outreach` | Sponsor outreach tracking |
+| `gala-outreach` | Sponsor outreach tracking — **queue retired 26 Aug 2026**, see below |
+| `bloomerang-snapshot` | Refreshes the local mirror of Bloomerang transactions |
 
 Three older functions on the same project (`virtual-summit-register`,
 `volunteer-register`, `photo-gallery`) belong to the public SPARC website, not
@@ -222,6 +223,92 @@ changes applied.
 `.pptx` in place is a write path that does not exist, so every instruction is
 stored as `needs_human` and stays that way until a person ticks it. Do not add
 a code path that reports a change as applied when it has not been.
+
+## `bloomerang-snapshot` actions
+
+Read-only. It exists **separately from `bloomerang`** on purpose: that function owns every
+write into live donor data, and a change to a reporting loader must never be able to break
+a money write.
+
+| Action | Notes |
+| --- | --- |
+| `sync` (default) | `{ skip?, max_pages? }` — pages `GET /transactions` and upserts into `snap_transactions`. Returns `{ upserted, pages, next_skip, total, complete, unmatched_accounts, rows_in_snapshot }`. |
+
+Resumable for the same reason `tasks/scan` is: Bloomerang caps `take` at 50 and a long run
+hits `WORKER_RESOURCE_LIMIT`. `complete: false` means call again with `skip = next_skip`.
+Scheduled nightly at 07:30 UTC with `max_pages: 8` — results come back newest-first, so 400
+rows always covers new activity. A full rebuild is a manual walk.
+
+### What was wrong with the previous snapshot
+
+`snap_transactions` held 1,672 rows with `fund`, `campaign`, `appeal`, `transaction_type`
+and `raw` **all null**, and only 52 rows dated in 2026 against 1,676 transactions in
+Bloomerang. Its `transaction_id` values did not match the live API's at all, so it was
+keyed on something else entirely. Those rows were deleted on 26 Aug 2026 and replaced by a
+full load, not merged into it.
+
+The most likely cause of the missing rows: `account_number` was `NOT NULL`, so a page
+containing any transaction whose constituent was not yet in `crm_account_map` failed to
+insert as a batch. That constraint is now dropped — unmatched revenue still counts, and
+`bloomerang_account_id` always identifies the record.
+
+**Every gala question is a question about campaign and appeal**, so a mirror without them
+cannot answer any of them, and "is this gift already in Bloomerang?" was being answered
+against an incomplete set.
+
+### Columns added 26 Aug 2026
+
+`bloomerang_account_id`, `check_number`, `fee_amount`, `is_refunded`, `designation_count`,
+`ticket_quantity`, `registration_type`, `sponsor_level`. All nullable.
+
+A transaction can carry several designations. The row keeps the **first** designation's
+fund / campaign / appeal / type — that is what the gala forms write — and the whole payload
+goes in `raw`, so a split gift can be read back without another API call.
+
+`ticket_quantity` and `registration_type` are Bloomerang per-designation **custom fields**
+(field ids 614403 and 614402). `registration_type` holds the sponsorship level as free text
+(`"Sponsorship Level: Friend"`); `sponsor_level` is the part after the colon, and is null
+for anything that is not a sponsorship. **It is never inferred from the amount** — that is
+how a $500 ticket becomes a $500 sponsorship on a report.
+
+## Live Bloomerang naming, as at 26 Aug 2026
+
+Read from the API, not from a document:
+
+- Fund **`Gala 2026`** (18870272) exists but **nothing uses it** — every 2026 gala gift is
+  filed to `Unrestricted` (13314).
+- Campaign is **`An Evening To SPARCle 2026`** (4915201) — capital `To`.
+- Appeals in use: **`An Evening to SPARCle 2026`** (4926464). Also present and unused:
+  `An Evening to SPARCle 2026 Tickets`, `An Evening to SPARCle Sponsorships 2026`,
+  and `Gala - Tickets` / `Gala - Sponsorship` / `Gala - Raffle`.
+
+`js/gala-tracking.js` in `sparcwebsite` writes `An Evening to SPARCle 2026` (lowercase `to`)
+and `Gala 2026 - Tickets`. **Neither exists.** That file's own comment says "A mismatched
+name is the main failure mode", and it is gated behind `ATTRIBUTION_ENABLED = false`.
+Turning it on as written would send names Bloomerang does not have.
+
+## Scheduled jobs
+
+| Job | Schedule (UTC) | Calls |
+| --- | --- | --- |
+| `sweep-email` | 11:00 Mon–Fri | `daily-sweep` |
+| `sync-bloomerang-ack` | 11:20 Mon–Fri | `bloomerang-ack` |
+| `sync-constituents` | 07:00 Sun | `bloomerang` `sync_accounts` |
+| `sync-bloomerang-transactions` | 07:30 daily | `bloomerang-snapshot` |
+| `tasks-scan-0800` / `-1200` / `-1700` | 12:00 / 16:00 / 21:00 | `tasks` `scan` |
+
+`call_edge` reads `system_config.cron_token`; `call_edge_svc` reads `tasks_cron_token`. Both
+are app session tokens, not API keys, so they survive Supabase key rotation — but they
+expire like any session.
+
+**`cron_token` was expired and every job using it had been failing 401 silently** — the
+email sweep, the acknowledgement sync and the constituent sync. Rotated 26 Aug 2026 to a
+365-day session. `pg_net` writes responses to `net._http_response`; a 401 there is the first
+place to look when a job stops having any effect.
+
+`sweep-gala-outreach` was **unscheduled** on 26 Aug 2026. Its 145 collected rows were set to
+`dismissed` rather than deleted: they were gathered by subject keyword and are mostly Debi
+writing to Erica with instructions, not invitations to prospects.
 
 ## Audit trail
 

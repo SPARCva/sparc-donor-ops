@@ -154,8 +154,11 @@ treated as an unsourced claim whether or not the model flagged it.
 
 | Action | Notes |
 | --- | --- |
-| `list` | `{ answers, pending, pending_total, counts }`. `pending` is open tasks with no answer yet, oldest 100 of them. |
-| `generate` | `{ task_id }`. Drafts one answer. `422` when the task was added by hand or its Gmail thread cannot be read — with nothing to source from, refusing is the feature. |
+| `list` | `{ answers, pending, pending_total, parked, counts }`. `pending` is open, un-parked tasks with no answer yet — **the oldest 100 of them**, so it cannot answer "most recent first" on its own; the UI builds that list from `tasks/list` instead. `parked` is what has been set aside or sent to Bloomerang. |
+| `generate` | `{ task_id }`. Drafts one answer. `422` when the task was added by hand or its Gmail thread cannot be read — with nothing to source from, refusing is the feature. Clears `ask_state`, so drafting an answer un-parks the ask. |
+| `dismiss_task` | `{ task_id }`. Erica is not answering this one. Sets `tasks.ask_state = 'dismissed'`. **The task stays open on Today** — this only stops Asks offering it. |
+| `restore_task` | `{ task_id }`. Clears `ask_state`. |
+| `to_bloomerang` | `{ task_id }`. Classifies the ask and, if it is a CRM request, stages a `crm_inbox` row for it. Returns `{ is_bloomerang: false, reason }` when it is not — the bar is deliberately high, because a false positive routes a real question away from the panel where it would have been answered. Nothing is posted to Bloomerang. |
 | `save` | `{ id, edited_draft }`. |
 | `approve` | `{ id }` → `staged`. `409` if it is not a draft any more. |
 | `unstage` | `{ id }` → back to `draft`. |
@@ -170,6 +173,29 @@ treated as an unsourced claim whether or not the model flagged it.
 Regenerating replaces rather than stacks: there is one live answer per task.
 Nothing here sends anything to Debi, and follow-ups send one at a time on their
 own approval — there is no bulk send anywhere in this function.
+
+### Asks that are not answered in prose
+
+`tasks.ask_state` is null, `'dismissed'` or `'bloomerang'`. It controls only
+whether the Asks panel offers to answer a task; it never changes `status`, so a
+parked ask is still open on Today and still counts there. `dismiss` (on an
+answer) parks its task too — before, dismissing a draft put the task straight
+back into "not drafted yet", because the answered set is built from
+non-dismissed answers only.
+
+`to_bloomerang` writes the drafted row with **`record_type: 'note'`** and a
+`proposed_payload` of exactly `{ _accountNumber, Date, Note }`. That shape is
+load-bearing: `bloomerang.pushOne` strips `_accountNumber` and spreads the rest
+straight into the API call, so any extra key would be sent to Bloomerang as a
+field on the note, and a `record_type` outside note / interaction / task has no
+endpoint at all. Everything else the draft knows — the constituent it wants
+created, the originating task — goes in `extraction`, which the pusher ignores.
+
+`dedupe_key` is `ask:<task_id>`, so re-running is a no-op rather than a second
+queue entry. The constituent lookup is read-only (`crm_sender_map`, then
+`crm_account_map`) and makes no Bloomerang API call; a miss leaves
+`_accountNumber` null and the Bloomerang panel asks for it, exactly as it does
+for a swept email that did not match.
 
 ## `docs` actions
 

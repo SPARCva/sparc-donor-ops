@@ -338,6 +338,27 @@ const noteRow = n => `
   </div>`;
 
 // ------------------------------------------------------------ bloomerang
+// A queued ask can carry a person or organisation that Debi wants to exist in
+// Bloomerang. Creating one is a separate, explicit step from pushing the note:
+// it uses the backend's own upsert_constituent, and only what the ask actually
+// stated is offered — nothing here fills in a surname or an address.
+function blmConstituent(i) {
+  const c = i.extraction?.constituent;
+  if (!c || i.match_constituent_id) return "";
+  const who = c.organization || [c.first_name, c.last_name].filter(Boolean).join(" ");
+  if (!who.trim()) return `<div class="note note-bad">Debi asked for someone to be added, but the
+    email does not name them clearly enough to create a record. Open the thread and check.</div>`;
+  const missing = !c.organization && !c.last_name ? " — no surname in the email" : "";
+  return `<div class="note">
+      <b>${esc(who)}</b>${esc(missing)}
+      ${c.email ? ` · ${esc(c.email)}` : ""}${c.phone ? ` · ${esc(c.phone)}` : ""}
+      <div class="controls note-controls">
+        <button class="btn btn-quiet btn-sm" data-blm-new="${i.id}">Create this constituent</button>
+        <span class="meta">Creates the record, then fills in the account number below.</span>
+      </div>
+    </div>`;
+}
+
 function renderBloomerang() {
   const rows = (D.inbox||[]).filter(i => ["needs_review","approved","failed","pushed"].includes(i.status));
   const pend = rows.filter(i => i.status !== "pushed");
@@ -362,6 +383,11 @@ function renderBloomerang() {
           <div class="who-line">${esc(i.from_name || i.from_email || "(unknown)")}</div>
           <div class="ask"><span class="tag">${esc(i.record_type || "note")}</span>${esc(i.subject || "(no subject)")}</div>
           ${i.extraction?.summary || i.raw_body ? `<div class="excerpt">${esc(i.extraction?.summary || (i.raw_body||"").slice(0,400))}</div>`:""}
+          ${i.source === "ask" ? `<div class="task-meta">
+            <span class="flag flag-ask">From Debi's ask</span>
+            ${i.extraction?.kind === "constituent" ? `<span class="flag flag-warn">Wants a constituent added</span>` : ""}
+          </div>` : ""}
+          ${blmConstituent(i)}
           <div class="controls">
             ${i.match_constituent_id
               ? `<span class="state s-ok">Matched #${i.match_constituent_id}</span>`
@@ -715,9 +741,12 @@ const byNewest = (a, b) => {
 const PENDING_SHOWN = 50;
 function pendingAsks() {
   const answered = new Set((A.answers || []).map(a => a.task_id));
+  // Asks set aside, or already sent to Bloomerang, are still open tasks on
+  // Today, so they arrive in T.tasks and have to be filtered out here too.
+  const parked = new Set((A.parked || []).map(t => t.id));
   const full = !!(T && T.tasks);
   const rows = (full ? T.tasks.filter(t => t.status === "open") : (A.pending || []))
-    .filter(t => !answered.has(t.id)).slice().sort(byNewest);
+    .filter(t => !answered.has(t.id) && !parked.has(t.id)).slice().sort(byNewest);
   return { rows, full };
 }
 
@@ -728,7 +757,7 @@ function renderAsks() {
   const pending = pendingAsks();
   const shown = pending.rows.slice(0, PENDING_SHOWN);
 
-  const pendingRows = shown.map(t => `<div class="task">
+  const pendingRows = shown.map(t => `<div class="task" data-pending="${t.id}">
       <span></span>
       <div>
         <div class="task-title">${t.list_index ? `<span class="idx">#${esc(t.list_index)}</span>` : ""}${esc(t.title)}</div>
@@ -737,11 +766,31 @@ function renderAsks() {
           ${t.source === "manual" || !t.source_thread_id
             ? `<span class="meta">added by hand — no thread to answer from</span>`
             : `<button class="quote-toggle" data-answer-regen="${t.id}">Draft an answer</button>`}
+          <button class="quote-toggle" data-ask-blm="${t.id}">Add to Bloomerang</button>
+          <button class="quote-toggle" data-ask-dismiss="${t.id}">Not answering this</button>
         </div>
+        <div class="result"></div>
       </div><span></span>
     </div>`).join("");
 
   const more = pending.rows.length - shown.length;
+
+  // Asks taken out of the panel. Shown rather than hidden, so nothing
+  // disappears without a way back.
+  const parked = (A.parked || []).slice().sort(byNewest);
+  const parkedRows = parked.map(t => `<div class="task" data-pending="${t.id}">
+      <span></span>
+      <div>
+        <div class="task-title">${t.list_index ? `<span class="idx">#${esc(t.list_index)}</span>` : ""}${esc(t.title)}</div>
+        <div class="task-meta"><span>${day(t.requested_at)}</span>
+          ${t.ask_state === "bloomerang"
+            ? `<span class="flag flag-ok">In the Bloomerang queue</span>`
+            : `<span class="flag">Set aside${t.ask_state_at ? " " + day(t.ask_state_at) : ""}</span>`}
+          <button class="quote-toggle" data-ask-restore="${t.id}">Put it back</button>
+        </div>
+        <div class="result"></div>
+      </div><span></span>
+    </div>`).join("");
 
   $("panel-asks").innerHTML = `
     <div class="tiles">
@@ -759,7 +808,10 @@ function renderAsks() {
       ? A.answers.slice().sort((x, y) => byNewest(x.task || {}, y.task || {})).map(answerCard).join("")
       : `<div class="empty"><b>No answers drafted yet.</b><p>Pick an ask below and draft an answer to it.</p></div>`}
     <h2 class="sec">Not drafted yet${more > 0 ? ` — newest ${shown.length} of ${pending.rows.length}` : ""}</h2>
-    ${pendingRows || `<div class="empty"><b>Every open ask has an answer.</b></div>`}`;
+    ${pendingRows || `<div class="empty"><b>Every open ask has an answer.</b></div>`}
+    ${parked.length ? `<h2 class="sec">Set aside — ${parked.length}</h2>
+      <p class="meta">These are still open on Today. They are just not offered for an answer here.</p>
+      ${parkedRows}` : ""}`;
 }
 
 // -------------------------------------------------------------- Follow Ups
@@ -950,7 +1002,7 @@ function renderDiff(id, d) {
 
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-save],[data-dismiss],[data-restore],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr]");
+  const t = e.target.closest("[data-save],[data-dismiss],[data-restore],[data-csv],[data-retry],[data-ask-dismiss],[data-ask-restore],[data-ask-blm],[data-blm-new],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr]");
   if (!t && e.target.id !== "noteAdd") return;
   const btn = t || $("noteAdd");
 
@@ -1041,6 +1093,42 @@ document.addEventListener("click", async e => {
 
   // ---- Asks
   if (btn.dataset.asksRetry) return loadAsks();
+  // Set an ask aside, or put it back. Neither touches the Today list.
+  for (const [key, action] of [["askDismiss", "dismiss_task"], ["askRestore", "restore_task"]]) {
+    if (btn.dataset[key]) {
+      const out = btn.closest(".task")?.querySelector(".result");
+      btn.disabled = true;
+      try { await ask(action, { task_id: Number(btn.dataset[key]) }); await loadAsks(); }
+      catch (err) {
+        if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; else alert(err.message);
+        btn.disabled = false;
+      }
+      return;
+    }
+  }
+  // Route an "add this to Bloomerang" ask into the Bloomerang queue. This only
+  // stages a draft — the push still needs her approval over on that tab.
+  if (btn.dataset.askBlm) {
+    const out = btn.closest(".task")?.querySelector(".result");
+    const label = btn.textContent; btn.disabled = true; btn.textContent = "Reading the ask…";
+    try {
+      const r = await ask("to_bloomerang", { task_id: Number(btn.dataset.askBlm) });
+      if (!r.is_bloomerang) {
+        // The classifier declined. Say why and leave the ask where it is.
+        if (out) out.innerHTML = `<div class="note note-bad">${esc(r.reason)}</div>`;
+        btn.disabled = false; btn.textContent = label;
+        return;
+      }
+      if (out) out.innerHTML = `<div class="note note-ok">${esc(r.summary || "Drafted.")} `
+        + `Waiting for your approval under Bloomerang. Nothing has been sent.</div>`;
+      // The draft now sits in the Bloomerang queue, so that panel is stale too.
+      setTimeout(async () => { await loadAsks(); await refresh(); }, 900);
+    } catch (err) {
+      if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`;
+      btn.disabled = false; btn.textContent = label;
+    }
+    return;
+  }
   if (btn.dataset.answerEdit) {
     const id = btn.dataset.answerEdit;
     $("ab" + id).classList.add("hidden");
@@ -1165,6 +1253,32 @@ document.addEventListener("click", async e => {
   const say = (c, m) => { if (out) out.innerHTML = `<div class="note ${c}">${esc(m)}</div>`; };
   if (btn.dataset.csv) return downloadCSV(btn.dataset.csv);
   if (btn.dataset.retry) return refresh();
+  // Create the constituent an ask asked for, using only the fields the email
+  // stated. Confirmed by name first: this writes a new record into live donor
+  // data and there is no undo for a constituent.
+  if (btn.dataset.blmNew) {
+    const row = (D.inbox || []).find(x => x.id === btn.dataset.blmNew);
+    const c = row?.extraction?.constituent;
+    if (!c) return;
+    const who = c.organization || [c.first_name, c.last_name].filter(Boolean).join(" ");
+    if (!confirm(`Create ${who} in Bloomerang? This adds a new constituent record.`)) return;
+    btn.disabled = true;
+    const label = btn.textContent; btn.textContent = "Creating…";
+    try {
+      const r = await blm("upsert_constituent", {
+        first_name: c.first_name || undefined, last_name: c.last_name || undefined,
+        organization: c.organization || undefined,
+        email: c.email || undefined, phone: c.phone || undefined,
+      });
+      say("note-ok", r.created
+        ? `Created. Account #${r.account_number}. Now approve the note below.`
+        : `Already on file as account #${r.account_number}. Now approve the note below.`);
+      const field = card?.querySelector('[data-field="_accountNumber"]');
+      if (field) field.value = r.account_number;
+      btn.textContent = label;
+    } catch (err) { say("note-bad", err.message); btn.disabled = false; btn.textContent = label; }
+    return;
+  }
   if (btn.dataset.restore) {
     btn.disabled = true;
     try { await api("restore_dismissed", JSON.parse(btn.dataset.restore)); await refresh(); }

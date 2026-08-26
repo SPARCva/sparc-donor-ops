@@ -20,7 +20,11 @@ It is not public-facing.
   there is no Google Fonts request, and the CSP has no off-domain font host.
 - **Backend:** Supabase Edge Functions, project ref `ldxpockcgcxvsrbyhcnt`.
   Deployed and live — see `docs/BACKEND.md`. **This repo does not contain the
-  backend.** Do not attempt to modify Edge Functions from here.
+  backend.** Do not change an Edge Function or the schema without Erica asking
+  for it in so many words: there is no staging database, so every migration and
+  every deploy lands on live donor data. When she does ask, read the deployed
+  source first (it is the only copy) and write the change up in
+  `docs/BACKEND.md` in the same pass.
 - **Hosting:** Netlify project `sparc-donor-ops`
   (site id `3afeba34-e865-4e35-a30e-27a59dce6b30`, team id
   `6980b8c5cb88ed7684233e75`). Deployed and live since 21 Aug 2026 at

@@ -201,7 +201,7 @@ function updateLede() {
   }
   if (TAB === "followups") {
     const n = F ? (F.rows || []).filter(r => r.status === "draft").length : 0;
-    lede.textContent = n === 0 ? "Nothing to chase." : `${n} ${n === 1 ? "chase" : "chases"} ready.`;
+    lede.textContent = n === 0 ? "Nothing to follow up." : `${n} ${n === 1 ? "follow up" : "follow ups"} ready.`;
     sub.textContent = "Each one sends on its own approval.";
     return;
   }
@@ -316,7 +316,7 @@ function renderNotes() {
   $("panel-notes").innerHTML = `
     <div class="notebox">
       <label for="noteBody">Add a note</label>
-      <textarea class="field" id="noteBody" placeholder="Something to chase, ask Kat, or remember from this sweep…"></textarea>
+      <textarea class="field" id="noteBody" placeholder="Something to follow up, ask Kat, or remember from this sweep…"></textarea>
       <div class="controls">
         <select class="field" id="noteTag">${TAGS.map(t=>`<option value="${t}">${t.replace(/_/g," ")}</option>`).join("")}</select>
         <button class="btn btn-go btn-sm" id="noteAdd">Save note</button>
@@ -338,23 +338,67 @@ const noteRow = n => `
   </div>`;
 
 // ------------------------------------------------------------ bloomerang
-// A queued ask can carry a person or organisation that Debi wants to exist in
-// Bloomerang. Creating one is a separate, explicit step from pushing the note:
-// it uses the backend's own upsert_constituent, and only what the ask actually
-// stated is offered — nothing here fills in a surname or an address.
+// Everything on a queued row is editable before it goes anywhere. What the
+// sweep or the ask extracted is a starting point, not a fact: the note can be
+// rewritten and the person's details corrected, and only then does one button
+// send it.
+//
+// The two halves are deliberately separate calls. Creating the constituent
+// uses the backend's own upsert_constituent and there is no undo for it, so it
+// is confirmed by name on its own. Pushing the note goes through approve,
+// which merges payload_overrides over the stored payload before writing.
+
+// Erica's calendar date, not UTC — a note dated by toISOString() lands on
+// yesterday for the whole of her evening.
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// The person or organisation an ask wants created. Fields the email did not
+// state are left empty rather than guessed at, and say so in the placeholder —
+// but every one of them can be typed into before the record is created.
+const CFIELDS = [["first_name","First name","text"], ["last_name","Last name","text"],
+                 ["organization","Organisation","text"], ["email","Email","email"], ["phone","Phone","tel"]];
 function blmConstituent(i) {
   const c = i.extraction?.constituent;
   if (!c || i.match_constituent_id) return "";
-  const who = c.organization || [c.first_name, c.last_name].filter(Boolean).join(" ");
-  if (!who.trim()) return `<div class="note note-bad">Debi asked for someone to be added, but the
-    email does not name them clearly enough to create a record. Open the thread and check.</div>`;
-  const missing = !c.organization && !c.last_name ? " — no surname in the email" : "";
-  return `<div class="note">
-      <b>${esc(who)}</b>${esc(missing)}
-      ${c.email ? ` · ${esc(c.email)}` : ""}${c.phone ? ` · ${esc(c.phone)}` : ""}
+  return `<div class="blm-block">
+      <b>Add this constituent</b>
+      <p class="meta">Only what the email actually stated is filled in. Correct anything
+        that is wrong and fill in what is missing before you create the record.</p>
+      <div class="blm-grid">
+        ${CFIELDS.map(([k, label, type]) => `<div>
+          <label for="bc${k}${i.id}">${label}</label>
+          <input class="field" id="bc${k}${i.id}" data-blm-c="${k}" type="${type}"
+                 value="${esc(c[k] || "")}" placeholder="not stated in the email">
+        </div>`).join("")}
+      </div>
       <div class="controls note-controls">
         <button class="btn btn-quiet btn-sm" data-blm-new="${i.id}">Create this constituent</button>
         <span class="meta">Creates the record, then fills in the account number below.</span>
+      </div>
+    </div>`;
+}
+
+// The note itself, editable. Only note rows get an editor: interaction and
+// task rows have a different payload shape and nothing here knows it, so they
+// keep the read-only card they had.
+//
+// An absent Note is left absent. The sweep proposed no text for the three rows
+// currently queued, and prefilling the box from the raw email body would put
+// words on a donor record that nobody wrote.
+function blmNote(i) {
+  if ((i.record_type ?? "note") !== "note") return "";
+  const p = i.proposed_payload || {};
+  const date = (p.Date || "").slice(0, 10) || (i.received_at || "").slice(0, 10) || todayISO();
+  return `<div class="blm-block">
+      <label for="bn${i.id}">Note to write on the constituent record</label>
+      <textarea class="field" id="bn${i.id}" data-blm-note rows="5"
+        placeholder="Nothing was drafted for this one. Write the note you want on the record.">${esc(p.Note || "")}</textarea>
+      <div class="controls">
+        <label class="tight" for="bd${i.id}">Dated</label>
+        <input class="field med" id="bd${i.id}" data-blm-date type="date" value="${esc(date)}">
       </div>
     </div>`;
 }
@@ -388,12 +432,13 @@ function renderBloomerang() {
             ${i.extraction?.kind === "constituent" ? `<span class="flag flag-warn">Wants a constituent added</span>` : ""}
           </div>` : ""}
           ${blmConstituent(i)}
+          ${blmNote(i)}
           <div class="controls">
             ${i.match_constituent_id
               ? `<span class="state s-ok">Matched #${i.match_constituent_id}</span>`
               : `<span class="state s-bad">No constituent match</span>
                  <input class="field med" data-field="_accountNumber" type="number" placeholder="Account #">`}
-            <button class="btn btn-go btn-sm" data-approve="${i.id}" ${i.status==="approved"?"disabled":""}>Approve &amp; push</button>
+            <button class="btn btn-go btn-sm" data-approve="${i.id}" ${i.status==="approved"?"disabled":""}>Send to Bloomerang</button>
             <button class="btn btn-quiet btn-sm" data-reject="${i.id}">Reject</button>
             <div class="spacer"></div>
             ${i.gmail_permalink ? `<a class="btn btn-quiet btn-sm" href="${esc(i.gmail_permalink)}" target="_blank" rel="noopener">Open email</a>`:""}
@@ -862,8 +907,8 @@ function renderFollowups() {
   const rows = F.rows || [];
   $("cF").textContent = rows.filter(r => r.status === "draft").length;
 
-  // Only tasks whose wording actually asks Erica to chase a named person are
-  // candidates; the generator decides, and says no when nobody is named.
+  // Only tasks whose wording actually asks Erica to follow up with a named person
+  // are candidates; the generator decides, and says no when nobody is named.
   const candidates = (T?.tasks || []).filter(t =>
     t.status === "open" && /follow up|check with|chase|reach out|circle back|touch base/i.test(t.title + " " + (t.detail || "")))
     .filter(t => !rows.some(r => r.task_id === t.id));
@@ -871,12 +916,12 @@ function renderFollowups() {
   $("panel-followups").innerHTML = `
     <div class="result note-controls" id="fuResult"></div>
     ${rows.length ? rows.map(followupCard).join("") : `<div class="empty">
-      <b>Nothing to chase.</b><p>Draft one from a task below that asks you to follow up with someone.</p></div>`}
+      <b>Nothing to follow up.</b><p>Draft one from a task below that asks you to follow up with someone.</p></div>`}
     ${candidates.length ? `<h2 class="sec">Tasks that look like a follow up</h2>
       ${candidates.slice(0, 25).map(t => `<div class="task"><span></span><div>
         <div class="task-title">${esc(t.title)}</div>
         <div class="task-meta"><span>${day(t.requested_at)}</span>
-          <button class="quote-toggle" data-fu-gen="${t.id}">Draft a chase</button></div>
+          <button class="quote-toggle" data-fu-gen="${t.id}">Draft a follow up</button></div>
       </div><span></span></div>`).join("")}` : ""}`;
 }
 
@@ -1253,14 +1298,15 @@ document.addEventListener("click", async e => {
   const say = (c, m) => { if (out) out.innerHTML = `<div class="note ${c}">${esc(m)}</div>`; };
   if (btn.dataset.csv) return downloadCSV(btn.dataset.csv);
   if (btn.dataset.retry) return refresh();
-  // Create the constituent an ask asked for, using only the fields the email
-  // stated. Confirmed by name first: this writes a new record into live donor
-  // data and there is no undo for a constituent.
+  // Create the constituent an ask asked for, from whatever is in the boxes at
+  // the moment the button is pressed — not from the extraction, so a correction
+  // she typed is the thing that gets written. Confirmed by name first: this
+  // writes a new record into live donor data and there is no undo for it.
   if (btn.dataset.blmNew) {
-    const row = (D.inbox || []).find(x => x.id === btn.dataset.blmNew);
-    const c = row?.extraction?.constituent;
-    if (!c) return;
+    const get = k => card?.querySelector(`[data-blm-c="${k}"]`)?.value.trim() || "";
+    const c = Object.fromEntries(CFIELDS.map(([k]) => [k, get(k)]));
     const who = c.organization || [c.first_name, c.last_name].filter(Boolean).join(" ");
+    if (!who) { say("note-bad", "Enter a name or an organisation first."); return; }
     if (!confirm(`Create ${who} in Bloomerang? This adds a new constituent record.`)) return;
     btn.disabled = true;
     const label = btn.textContent; btn.textContent = "Creating…";
@@ -1336,8 +1382,23 @@ document.addEventListener("click", async e => {
       else if (btn.dataset.noteDel)   { await api("note_delete", { id: btn.dataset.noteDel }); await refresh(); }
       else if (btn.dataset.approve) {
       const acct = card.querySelector('[data-field="_accountNumber"]')?.value;
-      await blm("approve", { id: btn.dataset.approve, ...(acct ? { payload_overrides:{ _accountNumber:Number(acct) } } : {}) });
-      say("note-ok","Pushed to Bloomerang."); card.classList.add("settled"); setTimeout(refresh, 800);
+      const noteEl = card.querySelector("[data-blm-note]");
+      const dateEl = card.querySelector("[data-blm-date]");
+      // A note with no body writes a blank record onto a donor, and the only
+      // way back is a delete. Refuse it here rather than at the API.
+      if (noteEl && !noteEl.value.trim()) {
+        say("note-bad","Write the note first — an empty note cannot be sent.");
+        btn.disabled = false; return;
+      }
+      // approve merges these over the stored payload, so what is on screen is
+      // what goes to Bloomerang.
+      const overrides = {};
+      if (acct) overrides._accountNumber = Number(acct);
+      if (noteEl) overrides.Note = noteEl.value.trim();
+      if (dateEl?.value) overrides.Date = dateEl.value;
+      await blm("approve", { id: btn.dataset.approve,
+        ...(Object.keys(overrides).length ? { payload_overrides: overrides } : {}) });
+      say("note-ok","Sent to Bloomerang."); card.classList.add("settled"); setTimeout(refresh, 800);
     } else if (btn.dataset.reject) {
       await blm("reject", { id: btn.dataset.reject, reason: prompt("Why reject this?") || "Not relevant" });
       card.classList.add("settled"); setTimeout(refresh, 500);

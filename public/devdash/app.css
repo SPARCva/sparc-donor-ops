@@ -205,6 +205,17 @@
 .signin-sub{color:var(--ink-60);font-size:14px;margin:0 0 22px}
 .controls-center{justify-content:center;margin-top:14px}
 .note-controls{margin-top:9px}
+
+/* Bloomerang card — the note and the constituent details are edited in place,
+   so each editable group is boxed off from the read-only summary above it. */
+.blm-block{background:#FAFBFD;border:1px solid var(--rule);border-radius:9px;padding:13px 15px;margin:0 0 11px}
+.blm-block > b{display:block;font-size:13.5px;margin-bottom:2px}
+.blm-block > .meta{margin:0 0 12px}
+.blm-block .field{margin-bottom:0}
+.blm-block textarea.field{min-height:96px;margin-bottom:12px}
+.blm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px 13px;margin-bottom:13px}
+label.tight{display:inline-block;margin:0 8px 0 0}
+@media(max-width:620px){.blm-grid{grid-template-columns:1fr}}
 .controls .field.wide{min-width:200px}
 .controls .field.med{min-width:120px}
 /* A full-width line inside a .controls row. The row is a wrapping flex

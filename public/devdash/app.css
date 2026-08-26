@@ -222,3 +222,23 @@ label.tight{display:inline-block;margin:0 8px 0 0}
    container, so an explanation has to claim its own line rather than sit
    between two buttons. */
 .controls .meta-row{flex:1 0 100%;margin-top:2px}
+
+/* Gala sub-lists. Pills rather than a second tab row: they switch a table, not
+   a panel, and should not read as the same weight as the tabs above. */
+.subtabs{display:flex;gap:7px;margin:0 0 16px;flex-wrap:wrap}
+.subtab{font:600 12.5px/1 inherit;padding:8px 14px;border-radius:20px;cursor:pointer;
+  border:1px solid var(--rule);background:var(--card);color:var(--ink-60)}
+.subtab:hover{color:var(--ink)}
+.subtab[aria-selected="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+/* A generated letter, shown as the page it will become. The Drive export keeps
+   Debi's formatting; this is a faithful-enough preview to approve from. */
+.letterpage{background:#fff;border:1px solid var(--rule);border-radius:8px;
+  padding:26px 30px;margin:12px 0;font-family:'Times New Roman',Times,serif;
+  font-size:13.5px;line-height:1.55;color:#000;max-height:26em;overflow:auto}
+.letterpage p{margin:0 0 10px;text-align:justify}
+.letterpage img{max-width:280px;height:auto}
+.blm-block .task-quote{margin-top:10px}
+.flag-blue{background:var(--blue-soft);color:var(--blue)}
+.blm-block .hint{font-size:12.5px;color:var(--ink-40);margin:0 0 11px}
+.result:empty{display:none}

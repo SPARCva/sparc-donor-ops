@@ -57,8 +57,33 @@ const doc = (a, b) => call(DOC, a, b);
 
 const money = n => n == null ? "—" : "$" + Number(n).toLocaleString("en-US",
   { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 });
-const day = d => d ? new Date(d).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "—";
-const daysSince = d => d == null ? null : Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000));
+// A bare YYYY-MM-DD is a calendar date, but `new Date("2026-08-21")` parses it
+// as midnight UTC — which renders as the 20th anywhere west of Greenwich,
+// including here. donation_date, sponsorship_date, payment_date, due_at,
+// completed_on and the `today` the tasks endpoint returns all arrive this way,
+// so they are built in local time instead. Values that carry a time are already
+// unambiguous and are left alone.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+function asDate(d) {
+  if (d == null || d === "") return null;
+  if (d instanceof Date) return isNaN(d) ? null : d;
+  const s = String(d);
+  if (DATE_ONLY.test(s)) { const [y, m, dd] = s.split("-").map(Number); return new Date(y, m - 1, dd); }
+  const t = new Date(s);
+  return isNaN(t) ? null : t;
+}
+const day = d => { const t = asDate(d); return t ? t.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" }) : "—"; };
+// Whole calendar days, not elapsed 24-hour periods: "3 days" on a card means
+// three days on the calendar, which is how the 7, 21 and 45 day thresholds in
+// waitBlock() are read. Rounding rather than flooring keeps a clock change from
+// costing or adding a day.
+function daysSince(d) {
+  const t = asDate(d); if (!t) return null;
+  const then = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.max(0, Math.round((today - then) / 86400000));
+}
 
 function waitBlock(days) {
   if (days == null) return `<div class="wait w-cool"><b>—</b><span>no date</span></div>`;
@@ -243,7 +268,21 @@ function editor(f) {
   }
   if (f.kind === "check_email_review")
     return `<button class="btn btn-quiet btn-sm" data-note='${esc(JSON.stringify({label:f.who, body:"Re: "+(f.question||"")}))}'>Add a note</button>`;
-  return `<span class="meta">Open the record under Records to fix this.</span>`;
+  if (f.kind === "letter_incomplete") {
+    const l = (D.letters || []).find(x => x.id === f.row_id) || {};
+    // This flag is raised because the letter has no Drive file or no Gmail
+    // draft on record, and neither is writable from here — both are written
+    // when the letter is generated. The account number, category and notes
+    // are writable, so offer those and say plainly that saving them records
+    // what is known without clearing the flag.
+    return `<input class="field med" data-field="constituent_account_number" type="number" placeholder="Account #" value="${esc(l.constituent_account_number ?? "")}">
+      <input class="field" data-field="category" placeholder="Category" value="${esc(l.category ?? "")}">
+      <input class="field wide" data-field="notes" placeholder="Note" value="${esc(l.notes ?? "")}">
+      <button class="btn btn-go btn-sm" data-save="thank_you_letters:${id}">Save</button>
+      <div class="meta meta-row">Saving records these against the letter. The missing file or draft is created when the letter itself is generated, so this flag stays until then.</div>`;
+  }
+  // Records is read-only, so telling anyone to fix it there was a dead end.
+  return `<span class="meta">Nothing on this screen can resolve this one yet.</span>`;
 }
 
 function renderQuestions() {
@@ -348,14 +387,33 @@ function renderBloomerang() {
 }
 
 // --------------------------------------------------------------- records
+// Donor names reach the two tables from different places and rarely match
+// character for character: a trailing space, "Smith & Sons" against "Smith and
+// Sons", a doubled space. Matching on a normalised key stops a letter that did
+// go out from being reported as never sent. Apostrophes and full stops are
+// dropped rather than turned into spaces, or "St. Mary's" keys as "st mary s"
+// and stops matching "St Marys".
+const nameKey = s => String(s ?? "").toLowerCase().replace(/&/g, " and ")
+  .replace(/['’.]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+const letterFor = name => {
+  const k = nameKey(name); if (!k) return null;
+  return (D.letters || []).find(x => nameKey(x.donor_display_name) === k) || null;
+};
+
 const SHEETS = () => [
   { key:"donations", title:"Donations",
-    cols:["First Name","Last Name","Address","Email","Phone Number","Donation Date","Donation Amount","Campaign","Gift Type","Thank You Note Sent?","Date Thank You Letter Sent to Debi"],
+    cols:["First Name","Last Name","Organization","Email","Donation Date","Donation Amount","Campaign","Gift Type","Thank You Note Sent?","Date Thank You Letter Sent to Debi"],
     rows:(D.staging||[]).map(d => {
-      const p=(d.donor_name||"").trim().split(/\s+/);
-      const l=(D.letters||[]).find(x=>x.donor_display_name===d.donor_name);
-      return [p.slice(0,-1).join(" ")||d.donor_name||"", p.length>1?p.at(-1):"", "", d.donor_email||"", "",
-        (d.donation_date||"").slice(0,10), d.amount ?? "", d.category||"", d.gift_type||"",
+      const org = (d.donor_organization || "").trim();
+      // Split a name into first and last only when it is a person's. A gift
+      // recorded against the organisation itself has no surname to find, and
+      // splitting invented one — "The Smith Family Foundation" came out as
+      // "The Smith Family" / "Foundation".
+      const person = org && nameKey(org) === nameKey(d.donor_name) ? "" : (d.donor_name || "").trim();
+      const p = person ? person.split(/\s+/) : [];
+      const l = letterFor(d.donor_name);
+      return [p.length > 1 ? p.slice(0,-1).join(" ") : person, p.length > 1 ? p.at(-1) : "", org,
+        d.donor_email||"", (d.donation_date||"").slice(0,10), d.amount ?? "", d.category||"", d.gift_type||"",
         l ? (l.status==="unsent"?"No":"Yes") : "No", l?.sent_to_debi_at ? l.sent_to_debi_at.slice(0,10) : ""]; }) },
   { key:"sponsorships", title:"Sponsorships",
     cols:["First Name","Last Name","Organization","Address","Email","Phone Number","Sponsorship Date","Sponsorship Amount","Level","Campaign","Group","Contacted By","Thank You Note Sent?","Date Thank You Letter Sent to Debi"],
@@ -848,7 +906,7 @@ function renderDiff(id, d) {
 
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr]");
+  const t = e.target.closest("[data-save],[data-dismiss],[data-restore],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr]");
   if (!t && e.target.id !== "noteAdd") return;
   const btn = t || $("noteAdd");
 
@@ -1063,19 +1121,51 @@ document.addEventListener("click", async e => {
   const say = (c, m) => { if (out) out.innerHTML = `<div class="note ${c}">${esc(m)}</div>`; };
   if (btn.dataset.csv) return downloadCSV(btn.dataset.csv);
   if (btn.dataset.retry) return refresh();
+  if (btn.dataset.restore) {
+    btn.disabled = true;
+    try { await api("restore_dismissed", JSON.parse(btn.dataset.restore)); await refresh(); }
+    catch (err) { btn.disabled = false; if (out) say("note-bad", err.message); else alert(err.message); }
+    return;
+  }
 
   btn.disabled = true;
   try {
     if (btn.dataset.save) {
       const [table, id] = btn.dataset.save.split(":");
       const fields = {};
-      card.querySelectorAll("[data-field]").forEach(el => { if (el.value !== "" && !el.dataset.field.startsWith("_")) fields[el.dataset.field] = el.value; });
+      card.querySelectorAll("[data-field]").forEach(el => {
+        const name = el.dataset.field;
+        if (name.startsWith("_")) return;           // UI-only, never written back
+        // A field that arrived with a value and is now empty was cleared on
+        // purpose; one that was empty all along was simply not filled in. Only
+        // the first is sent, and the backend reads "" as null — so a wrong
+        // value can finally be removed rather than only overwritten.
+        const had = el.tagName === "SELECT"
+          ? (el.querySelector("option[selected]")?.value ?? "")
+          : el.defaultValue;
+        if (el.value !== "" || had !== "") fields[name] = el.value;
+      });
       if (!Object.keys(fields).length) { say("note-bad","Fill in a value first."); btn.disabled = false; return; }
       await api("update", { table, id, fields });
       say("note-ok","Saved."); card.classList.add("settled"); setTimeout(refresh, 650);
     } else if (btn.dataset.dismiss) {
-      await api("dismiss", JSON.parse(btn.dataset.dismiss));
-      card.classList.add("settled"); setTimeout(refresh, 400);
+      const payload = JSON.parse(btn.dataset.dismiss);
+      await api("dismiss", payload);
+      // Dim the card and leave it in place rather than refreshing it away, so
+      // a mis-click can be taken back. It clears on the next refresh like any
+      // other card that has been dealt with.
+      card.classList.add("settled");
+      if (out) out.innerHTML = `<div class="note note-ok">Dismissed. `
+        + `<button class="link" data-restore='${esc(JSON.stringify(payload))}'>Undo</button></div>`;
+      // Drop the flag from the payload held in memory and redraw only the
+      // counts, so the tab pill and the lede stay honest without re-rendering
+      // the panel out from under the undo. Undo calls refresh() and reloads
+      // the real numbers.
+      D.flags = (D.flags || []).filter(x =>
+        !(x.kind === payload.flag_kind && x.table === payload.table && x.row_id === payload.row_id));
+      D.counts.flags = D.flags.length;
+      $("cQ").textContent = D.counts.flags;
+      updateLede();
     } else if (e.target.id === "noteAdd") {
       await api("note", { body: $("noteBody").value, tag: $("noteTag").value });
       $("noteBody").value = ""; await refresh();

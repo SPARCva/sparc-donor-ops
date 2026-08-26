@@ -207,3 +207,7 @@
 .note-controls{margin-top:9px}
 .controls .field.wide{min-width:200px}
 .controls .field.med{min-width:120px}
+/* A full-width line inside a .controls row. The row is a wrapping flex
+   container, so an explanation has to claim its own line rather than sit
+   between two buttons. */
+.controls .meta-row{flex:1 0 100%;margin-top:2px}

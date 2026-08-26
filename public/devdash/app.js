@@ -467,7 +467,13 @@ function downloadCSV(key) {
 const GMAIL_THREAD = id => "https://mail.google.com/mail/u/0/#all/" + encodeURIComponent(id);
 
 async function loadToday() {
-  try { T = await tsk("list"); renderToday(); updateLede(); }
+  try {
+    T = await tsk("list"); renderToday();
+    // Asks builds its "not drafted yet" list from T, so keep it in step when a
+    // scan or a tick changes the task list underneath it.
+    if (A) renderAsks();
+    updateLede();
+  }
   catch (e) {
     if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
     $("cT").textContent = "—";
@@ -633,6 +639,10 @@ const FLAG_HELP = {
 };
 
 async function loadAsks() {
+  // The "not drafted yet" list is built from the Today task list, so make sure
+  // it is loaded first. loadToday() swallows its own failure and leaves T null,
+  // which renderAsks() falls back from.
+  try { if (!T) await loadToday(); } catch {}
   try { A = await ask("list"); renderAsks(); updateLede(); }
   catch (e) {
     if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
@@ -681,11 +691,44 @@ function answerCard(a) {
   </div>`;
 }
 
+// Newest ask first. Within a single email Debi's numbering is the order she
+// expects them answered in, so ties on the timestamp keep 1, 2, 11 ascending.
+const byNewest = (a, b) => {
+  const t = new Date(b.requested_at || 0) - new Date(a.requested_at || 0);
+  if (t) return t;
+  const ai = a.list_index != null ? Number(a.list_index) : NaN;
+  const bi = b.list_index != null ? Number(b.list_index) : NaN;
+  if (!isNaN(ai) && !isNaN(bi)) return ai - bi;
+  if (!isNaN(ai)) return -1;
+  if (!isNaN(bi)) return 1;
+  return (b.id || 0) - (a.id || 0);
+};
+
+// Open asks with no answer drafted yet.
+//
+// Built from the Today list rather than from A.pending, because the asks
+// endpoint sends only the OLDEST 100 pending tasks. Reversing that would show
+// the oldest hundred backwards and leave the genuinely recent asks out of the
+// payload entirely — the opposite of "most recent first". tasks/list returns
+// every open task, so use it whenever it has loaded and fall back to the
+// endpoint's own slice if it has not.
+const PENDING_SHOWN = 50;
+function pendingAsks() {
+  const answered = new Set((A.answers || []).map(a => a.task_id));
+  const full = !!(T && T.tasks);
+  const rows = (full ? T.tasks.filter(t => t.status === "open") : (A.pending || []))
+    .filter(t => !answered.has(t.id)).slice().sort(byNewest);
+  return { rows, full };
+}
+
 function renderAsks() {
   const c = A.counts;
   $("cA").textContent = c.draft + c.staged;
 
-  const pendingRows = (A.pending || []).map(t => `<div class="task">
+  const pending = pendingAsks();
+  const shown = pending.rows.slice(0, PENDING_SHOWN);
+
+  const pendingRows = shown.map(t => `<div class="task">
       <span></span>
       <div>
         <div class="task-title">${t.list_index ? `<span class="idx">#${esc(t.list_index)}</span>` : ""}${esc(t.title)}</div>
@@ -698,7 +741,7 @@ function renderAsks() {
       </div><span></span>
     </div>`).join("");
 
-  const more = (A.pending_total || 0) - (A.pending || []).length;
+  const more = pending.rows.length - shown.length;
 
   $("panel-asks").innerHTML = `
     <div class="tiles">
@@ -712,9 +755,10 @@ function renderAsks() {
       <span class="meta">Assembles every staged answer into one draft to Debi, in her numbering. Never sends.</span>
     </div>
     <div class="result note-controls" id="asksResult"></div>
-    ${A.answers.length ? A.answers.map(answerCard).join("") : `<div class="empty">
-      <b>No answers drafted yet.</b><p>Pick an ask below and draft an answer to it.</p></div>`}
-    <h2 class="sec">Not drafted yet${more > 0 ? ` — showing ${A.pending.length} of ${c.pending}` : ""}</h2>
+    ${A.answers.length
+      ? A.answers.slice().sort((x, y) => byNewest(x.task || {}, y.task || {})).map(answerCard).join("")
+      : `<div class="empty"><b>No answers drafted yet.</b><p>Pick an ask below and draft an answer to it.</p></div>`}
+    <h2 class="sec">Not drafted yet${more > 0 ? ` — newest ${shown.length} of ${pending.rows.length}` : ""}</h2>
     ${pendingRows || `<div class="empty"><b>Every open ask has an answer.</b></div>`}`;
 }
 

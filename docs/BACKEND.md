@@ -192,7 +192,10 @@ endpoint at all. Everything else the draft knows — the constituent it wants
 created, the originating task — goes in `extraction`, which the pusher ignores.
 
 `dedupe_key` is `ask:<task_id>`, so re-running is a no-op rather than a second
-queue entry. The constituent lookup is read-only (`crm_sender_map`, then
+queue entry. `source` is **`debi_request`** — `crm_inbox_source_check` permits
+only `scan`, `debi_cc`, `donation`, `debi_request`, `general` and `backfill`, so
+anything else fails the insert. Rows that came from an ask are identified by
+`extraction.from_task_id`, not by `source`. The constituent lookup is read-only (`crm_sender_map`, then
 `crm_account_map`) and makes no Bloomerang API call; a miss leaves
 `_accountNumber` null and the Bloomerang panel asks for it, exactly as it does
 for a swept email that did not match.

@@ -383,7 +383,7 @@ function renderBloomerang() {
           <div class="who-line">${esc(i.from_name || i.from_email || "(unknown)")}</div>
           <div class="ask"><span class="tag">${esc(i.record_type || "note")}</span>${esc(i.subject || "(no subject)")}</div>
           ${i.extraction?.summary || i.raw_body ? `<div class="excerpt">${esc(i.extraction?.summary || (i.raw_body||"").slice(0,400))}</div>`:""}
-          ${i.source === "ask" ? `<div class="task-meta">
+          ${i.extraction?.from_task_id ? `<div class="task-meta">
             <span class="flag flag-ask">From Debi's ask</span>
             ${i.extraction?.kind === "constituent" ? `<span class="flag flag-warn">Wants a constituent added</span>` : ""}
           </div>` : ""}

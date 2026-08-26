@@ -2,10 +2,11 @@ const OPS = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/donor-ops";
 const BLM = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/bloomerang";
 const TSK = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/tasks";
 const ASK = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/asks";
+const DOC = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/docs";
 let TOKEN = null, USER = null, D = null, TAB = "today";
 // Today and Completed load from their own endpoint, so they keep their own
 // state rather than hanging off the donor-ops dashboard payload.
-let T = null, C = null, CFROM = null, CTO = null, A = null, F = null;
+let T = null, C = null, CFROM = null, CTO = null, A = null, F = null, DOCS = null;
 
 // Session lives in sessionStorage, never localStorage: this is donor data on a
 // shared office machine, so the session must die with the tab. We keep the
@@ -52,6 +53,7 @@ const api = (a, b) => call(OPS, a, b);
 const blm = (a, b) => call(BLM, a, b);
 const tsk = (a, b) => call(TSK, a, b);
 const ask = (a, b) => call(ASK, a, b);
+const doc = (a, b) => call(DOC, a, b);
 
 const money = n => n == null ? "—" : "$" + Number(n).toLocaleString("en-US",
   { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 });
@@ -103,10 +105,11 @@ document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () =>
   if (TAB === "completed" && !C) loadCompleted();
   if (TAB === "asks" && !A) loadAsks();
   if (TAB === "followups" && !F) loadFollowups();
+  if (TAB === "docs" && !DOCS) loadDocs();
   updateLede();
 }));
 
-const PANELS = ["today","questions","notes","bloomerang","records","asks","followups","completed"];
+const PANELS = ["today","questions","notes","bloomerang","records","asks","followups","docs","completed"];
 
 async function refresh() {
   PANELS.forEach(p => $("panel-"+p).innerHTML = `<div class="loading">Loading…</div>`);
@@ -175,6 +178,15 @@ function updateLede() {
     const n = F ? (F.rows || []).filter(r => r.status === "draft").length : 0;
     lede.textContent = n === 0 ? "Nothing to chase." : `${n} ${n === 1 ? "chase" : "chases"} ready.`;
     sub.textContent = "Each one sends on its own approval.";
+    return;
+  }
+  if (TAB === "docs") {
+    if (!DOCS) { lede.textContent = "Loading…"; sub.textContent = ""; return; }
+    const n = DOCS.counts.needs_human;
+    lede.textContent = (DOCS.rows || []).length === 0 ? "No documents waiting."
+      : `${DOCS.rows.length} ${DOCS.rows.length === 1 ? "document" : "documents"} back from Debi.`;
+    sub.textContent = n === 0 ? "Nothing outstanding on them."
+      : `${n} ${n === 1 ? "change needs" : "changes need"} your eye.`;
     return;
   }
   if (TAB === "completed") {
@@ -714,9 +726,129 @@ function renderFollowups() {
       </div><span></span></div>`).join("")}` : ""}`;
 }
 
+
+// ---------------------------------------------------------- Needs editing
+// Documents Debi sent back. Two kinds arrive together and both matter: the
+// tracked changes inside a .docx, and the instructions she wrote in the email
+// body — which for decks is the more common one.
+//
+// Nothing here has applied a change. Every instruction reads "needs your eye"
+// until it is ticked off by a person, because claiming an edit was applied
+// when it was not is worse than not offering to apply it at all.
+
+const KIND_LABEL = { text: "Wording", image: "Image", slide: "Slide", formatting: "Formatting", data: "Figure", other: "Other" };
+
+async function loadDocs() {
+  try { DOCS = await doc("list"); renderDocs(); updateLede(); }
+  catch (e) {
+    if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
+    $("panel-docs").innerHTML = `<div class="empty"><b>Documents couldn't load.</b>
+      <p><span class="meta">${esc(e.message)}</span></p>
+      <div class="controls controls-center"><button class="btn btn-sm" data-docs-retry="1">Try again</button></div></div>`;
+  }
+}
+
+function instructionRow(d, i, n) {
+  const state = i.state || "needs_human";
+  return `<div class="instr instr-${esc(state)}">
+    <div>
+      <div class="task-title">${esc(i.what || "(no summary)")}</div>
+      <div class="task-meta">
+        <span class="flag flag-due">${esc(KIND_LABEL[i.kind] || i.kind || "Other")}</span>
+        ${i.target ? `<span class="flag flag-warn">${esc(String(i.target))}</span>` : ""}
+        ${state === "needs_human" ? '<span class="flag flag-warn">Needs your eye</span>' : ""}
+        ${state === "done" ? '<span class="flag flag-ok">Done</span>' : ""}
+        ${state === "skipped" ? '<span class="flag">Skipped</span>' : ""}
+      </div>
+      ${i.quote ? `<div class="task-quote">“${esc(i.quote)}”</div>` : ""}
+    </div>
+    <div class="task-side">
+      <button class="btn btn-quiet btn-sm" data-instr="${d.id}:${n}:done">Done</button>
+      <button class="btn btn-quiet btn-sm" data-instr="${d.id}:${n}:skipped">Skip</button>
+    </div>
+  </div>`;
+}
+
+function docCard(d) {
+  const instrs = d.instructions || [];
+  const open = instrs.filter(i => (i.state || "needs_human") === "needs_human").length;
+  return `<div class="card-plain" data-doc="${d.id}">
+    <div class="task-title">${esc(d.filename)}</div>
+    <div class="task-meta">
+      <span class="flag flag-due">${esc(d.file_kind)}</span>
+      ${d.tracked_change_count ? `<span class="flag flag-warn">${d.tracked_change_count} tracked changes</span>` : ""}
+      ${instrs.length ? `<span class="flag flag-warn">${instrs.length} instruction${instrs.length === 1 ? "" : "s"}</span>` : ""}
+      ${open ? `<span class="flag flag-old">${open} needing your eye</span>` : ""}
+      <span class="flag ${d.status === "returned" ? "flag-ok" : ""}">${esc(d.status)}</span>
+      ${d.attachment?.drive_url ? `<a href="${esc(d.attachment.drive_url)}" target="_blank" rel="noopener">Open the file</a>` : ""}
+    </div>
+    ${d.tracked_change_count
+      ? `<div class="controls"><button class="btn btn-quiet btn-sm" data-doc-diff="${d.id}">Show her changes side by side</button></div>`
+      : ""}
+    <div class="diffwrap hidden" id="dw${d.id}"></div>
+    ${instrs.length ? `<h3 class="sec">What she asked for</h3>${instrs.map((i, n) => instructionRow(d, i, n)).join("")}` : ""}
+    <div class="controls">
+      <span class="spacer"></span>
+      <button class="btn btn-quiet btn-sm" data-doc-mark="${d.id}:returned">Mark returned</button>
+      <button class="btn btn-quiet btn-sm" data-doc-mark="${d.id}:dismissed">Dismiss</button>
+    </div>
+    <div class="result"></div>
+  </div>`;
+}
+
+function renderDocs() {
+  const c = DOCS.counts;
+  $("cD").textContent = c.pending;
+  $("panel-docs").innerHTML = `
+    <div class="tiles">
+      <div class="tile"><b>${(DOCS.rows || []).length}</b><span>Documents</span></div>
+      <div class="tile tile-amber"><b>${c.needs_human}</b><span>Needing your eye</span></div>
+      <div class="tile"><b>${c.tracked}</b><span>Tracked changes</span></div>
+      <div class="tile"><b>${c.pending}</b><span>Still open</span></div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-sm" data-docs-scan="1">Look for new documents</button>
+      <span class="meta">Nothing here edits a file. Her changes are shown so you can make them.</span>
+    </div>
+    <div class="result note-controls" id="docsResult"></div>
+    ${(DOCS.rows || []).length ? DOCS.rows.map(docCard).join("")
+      : `<div class="empty"><b>No documents waiting.</b>
+         <p>Anything Debi sends back with a .docx or deck attached shows up here.</p></div>`}`;
+}
+
+// Her version against the version with her changes applied. Deletions struck
+// through in red, insertions in green, so the two columns read as one edit.
+function renderDiff(id, d) {
+  const side = which => (d.paragraphs || []).map(p => {
+    const segs = (p.segs || []).filter(s => which === "orig" ? s.kind !== "ins" : s.kind !== "del");
+    if (!segs.length) return "";
+    return "<p>" + segs.map(s => {
+      const t = esc(s.text);
+      if (s.kind === "del") return `<del>${t}</del>`;
+      if (s.kind === "ins") return `<ins>${t}</ins>`;
+      return t;
+    }).join("") + "</p>";
+  }).join("");
+
+  const comments = (d.comments || []).length
+    ? `<h3 class="sec">Her comments (${d.comments.length})</h3>
+       ${d.comments.map(c => `<div class="task-quote">“${esc(c.text)}”
+          <div class="task-meta"><span>${esc(c.author || "unknown")}</span></div></div>`).join("")}`
+    : "";
+
+  $("dw" + id).innerHTML = `
+    <div class="task-meta"><span>${d.insertions} inserted</span><span>${d.deletions} deleted</span></div>
+    <div class="sbs">
+      <div><h3 class="sec">Her version</h3><div class="docside">${side("orig")}</div></div>
+      <div><h3 class="sec">With her changes</h3><div class="docside">${side("rev")}</div></div>
+    </div>
+    ${comments}`;
+  $("dw" + id).classList.remove("hidden");
+}
+
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered]");
+  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr]");
   if (!t && e.target.id !== "noteAdd") return;
   const btn = t || $("noteAdd");
 
@@ -759,6 +891,52 @@ document.addEventListener("click", async e => {
     } catch (err) { btn.disabled = false; alert(err.message); }
     return;
   }
+  // ---- Needs editing
+  if (btn.dataset.docsRetry) return loadDocs();
+  if (btn.dataset.docsScan) {
+    const out = $("docsResult"); btn.disabled = true;
+    const label = btn.textContent; btn.textContent = "Looking…";
+    try {
+      const r = await doc("scan", { days: 30 });
+      out.innerHTML = `<div class="note note-ok">${r.queued} new ${r.queued === 1 ? "document" : "documents"} queued.</div>`;
+      await loadDocs();
+    } catch (err) { out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; }
+    btn.disabled = false; btn.textContent = label;
+    return;
+  }
+  if (btn.dataset.docDiff) {
+    const id = btn.dataset.docDiff;
+    const wrap = $("dw" + id);
+    if (!wrap.classList.contains("hidden")) { wrap.classList.add("hidden"); return; }
+    const label = btn.textContent; btn.disabled = true; btn.textContent = "Reading the file…";
+    try { renderDiff(id, await doc("diff", { id: Number(id) })); }
+    catch (err) { btn.closest(".card-plain").querySelector(".result").innerHTML =
+      `<div class="note note-bad">${esc(err.message)}</div>`; }
+    btn.disabled = false; btn.textContent = label;
+    return;
+  }
+  if (btn.dataset.instr) {
+    const [id, n, state] = btn.dataset.instr.split(":");
+    const row = (DOCS.rows || []).find(r => String(r.id) === id);
+    if (!row) return;
+    // Send the whole list back with one entry changed: the column is a single
+    // jsonb value, so a partial write would drop the others.
+    const next = (row.instructions || []).map((i, k) =>
+      String(k) === n ? { ...i, state: i.state === state ? "needs_human" : state } : i);
+    btn.disabled = true;
+    try { await doc("instructions_save", { id: Number(id), instructions: next }); await loadDocs(); }
+    catch (err) { alert(err.message); btn.disabled = false; }
+    return;
+  }
+  if (btn.dataset.docMark) {
+    const [id, status] = btn.dataset.docMark.split(":");
+    if (status === "dismissed" && !confirm("Dismiss this document?")) return;
+    btn.disabled = true;
+    try { await doc("mark", { id: Number(id), status }); await loadDocs(); }
+    catch (err) { alert(err.message); btn.disabled = false; }
+    return;
+  }
+
   // ---- Asks
   if (btn.dataset.asksRetry) return loadAsks();
   if (btn.dataset.answerEdit) {

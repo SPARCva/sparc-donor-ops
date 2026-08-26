@@ -48,8 +48,11 @@
   .lede p{color:var(--ink-60);margin:9px 0 0;max-width:58ch;font-size:14.5px}
   .lede{margin-bottom:24px}
 
-  .tabs{display:flex;gap:3px;border-bottom:1px solid var(--rule);margin-bottom:22px;overflow-x:auto;scrollbar-width:none}
-  .tabs::-webkit-scrollbar{display:none}
+  /* Nine tabs no longer fit on one line even at 1720px. The strip used to
+     scroll with the scrollbar hidden, so opening a later tab scrolled "Today"
+     off the left edge with nothing to say it was still there. Wrapping keeps
+     every tab visible at every width. */
+  .tabs{display:flex;flex-wrap:wrap;gap:2px 4px;border-bottom:1px solid var(--rule);margin-bottom:22px}
   .tab{background:none;border:0;border-bottom:2px solid transparent;padding:10px 13px;color:var(--ink-60);font-weight:600;font-size:14px;white-space:nowrap;margin-bottom:-1px}
   .tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--ink)}
   .pill{display:inline-block;min-width:20px;padding:1px 7px;border-radius:20px;font-size:11.5px;font-weight:700;margin-left:7px;font-variant-numeric:tabular-nums}
@@ -149,6 +152,21 @@
   .flag-staged{background:var(--green);color:#fff}
   h2.sec{font-size:15px;margin:22px 0 10px;color:var(--ink-60)}
 
+  /* ------------------------------------------------- Needs editing */
+  .sbs{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:10px 0}
+  .docside{background:var(--paper);border:1px solid var(--rule);border-radius:8px;
+           padding:12px 14px;max-height:460px;overflow:auto;font-size:14px;line-height:1.55}
+  .docside p{margin:0 0 9px}
+  .docside del{color:var(--red);text-decoration:line-through;text-decoration-thickness:1.5px}
+  .docside ins{color:var(--green);text-decoration:none;background:var(--green-soft);border-radius:2px}
+  .instr{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:start;
+         border-top:1px solid var(--rule);padding:11px 0}
+  .instr-done{opacity:.5} .instr-skipped{opacity:.42}
+  .instr-done .task-title{text-decoration:line-through}
+  h3.sec{font-size:13px;margin:16px 0 6px;color:var(--ink-60);
+         text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+  .diffwrap{margin:6px 0 2px}
+
   @media (max-width:620px){
     .card{grid-template-columns:48px 1fr;gap:12px;padding:14px}
     .wait b{font-size:23px} main{padding:20px 15px 70px}
@@ -166,8 +184,11 @@
     /* Six tabs do not fit on a phone. .tabs scrolls horizontally with the
        scrollbar hidden, so the last tabs were reachable but invisible — there
        was nothing to suggest Completed existed. Wrapping shows all of them. */
-    .tabs{flex-wrap:wrap;overflow-x:visible;gap:2px 4px;padding-bottom:2px}
     .tab{padding-left:9px;padding-right:9px}
+    /* Two columns of prose at 375px is unreadable; stack them and let the
+       red and green carry the comparison instead. */
+    .sbs{grid-template-columns:1fr;gap:10px}
+    .docside{max-height:300px}
     .tiles{grid-template-columns:1fr 1fr;gap:8px}
     .tile b{font-size:22px}
     .task{padding:11px 12px;gap:10px}

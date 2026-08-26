@@ -1,10 +1,11 @@
 const OPS = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/donor-ops";
 const BLM = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/bloomerang";
 const TSK = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/tasks";
+const ASK = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/asks";
 let TOKEN = null, USER = null, D = null, TAB = "today";
 // Today and Completed load from their own endpoint, so they keep their own
 // state rather than hanging off the donor-ops dashboard payload.
-let T = null, C = null, CFROM = null, CTO = null;
+let T = null, C = null, CFROM = null, CTO = null, A = null, F = null;
 
 // Session lives in sessionStorage, never localStorage: this is donor data on a
 // shared office machine, so the session must die with the tab. We keep the
@@ -50,6 +51,7 @@ async function call(url, action, body = {}) {
 const api = (a, b) => call(OPS, a, b);
 const blm = (a, b) => call(BLM, a, b);
 const tsk = (a, b) => call(TSK, a, b);
+const ask = (a, b) => call(ASK, a, b);
 
 const money = n => n == null ? "—" : "$" + Number(n).toLocaleString("en-US",
   { minimumFractionDigits: Number(n) % 1 ? 2 : 0, maximumFractionDigits: 2 });
@@ -99,10 +101,12 @@ document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () =>
   // Completed is not part of the dashboard payload, so it fetches on first
   // view rather than on every refresh.
   if (TAB === "completed" && !C) loadCompleted();
+  if (TAB === "asks" && !A) loadAsks();
+  if (TAB === "followups" && !F) loadFollowups();
   updateLede();
 }));
 
-const PANELS = ["today","questions","notes","bloomerang","records","completed"];
+const PANELS = ["today","questions","notes","bloomerang","records","asks","followups","completed"];
 
 async function refresh() {
   PANELS.forEach(p => $("panel-"+p).innerHTML = `<div class="loading">Loading…</div>`);
@@ -156,6 +160,21 @@ function updateLede() {
       : (T.counts.over_7_days > 0
           ? `${T.counts.over_7_days} of them ${T.counts.over_7_days === 1 ? "has" : "have"} been open more than a week.`
           : "Oldest ask first.");
+    return;
+  }
+  if (TAB === "asks") {
+    if (!A) { lede.textContent = "Loading…"; sub.textContent = ""; return; }
+    const n = A.counts.draft + A.counts.staged;
+    lede.textContent = n === 0 ? "No answers drafted." : `${n} ${n === 1 ? "answer" : "answers"} drafted.`;
+    sub.textContent = A.counts.flagged > 0
+      ? `${A.counts.flagged} ${A.counts.flagged === 1 ? "has a flag" : "have flags"} to check before sending.`
+      : "Approve the ones you are happy with, then create the draft.";
+    return;
+  }
+  if (TAB === "followups") {
+    const n = F ? (F.rows || []).filter(r => r.status === "draft").length : 0;
+    lede.textContent = n === 0 ? "Nothing to chase." : `${n} ${n === 1 ? "chase" : "chases"} ready.`;
+    sub.textContent = "Each one sends on its own approval.";
     return;
   }
   if (TAB === "completed") {
@@ -523,9 +542,181 @@ function taskCSV(rows, name) {
   document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 
+
+// ------------------------------------------------------------------- Asks
+// One answer draft per ask from Debi. The flags are the point of this panel:
+// the generator grades its own output and says what it could not source, and
+// a bracketed placeholder means a human still has to fill a gap. Nothing here
+// sends — approved answers assemble into one Gmail draft in Debi's numbering.
+
+const FLAG_LABEL = {
+  unsourced_claim: "Unsourced",
+  missing_interpretation: "No interpretation",
+  filler: "Filler",
+  repeat_ask: "Asked before",
+};
+const FLAG_HELP = {
+  unsourced_claim: "States something the thread does not support, or left a gap to fill. Check every specific before this goes out.",
+  missing_interpretation: "Gives numbers without saying what they mean.",
+  filler: "Words that add length but no information.",
+  repeat_ask: "Debi has asked this more than once.",
+};
+
+async function loadAsks() {
+  try { A = await ask("list"); renderAsks(); updateLede(); }
+  catch (e) {
+    if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
+    $("panel-asks").innerHTML = `<div class="empty"><b>Answers couldn't load.</b>
+      <p><span class="meta">${esc(e.message)}</span></p>
+      <div class="controls controls-center"><button class="btn btn-sm" data-asks-retry="1">Try again</button></div></div>`;
+  }
+}
+
+// A placeholder the model left for a human. Shown inline so an unfilled gap is
+// visible in the draft rather than only in a flag.
+function markGaps(text) {
+  return esc(text).replace(/\[([^\]]{3,})\]/g, '<mark class="gap">[$1]</mark>');
+}
+
+function answerCard(a) {
+  const t = a.task || {};
+  const flags = (a.flags || []).map(f =>
+    `<span class="flag flag-warn" title="${esc(FLAG_HELP[f] || "")}">${esc(FLAG_LABEL[f] || f)}</span>`).join("");
+  const text = a.edited_draft ?? a.ai_draft ?? "";
+  const staged = a.status === "staged";
+  const idx = t.list_index ? `<span class="idx">#${esc(t.list_index)}</span>` : "";
+
+  return `<div class="card-plain${staged ? " staged" : ""}" data-answer="${a.id}">
+    <div class="task-title">${idx}${esc(t.title || "(task missing)")}</div>
+    <div class="task-meta">
+      <span>${day(t.requested_at)}</span>
+      ${flags || '<span class="flag flag-ok">No flags raised</span>'}
+      ${staged ? '<span class="flag flag-staged">Staged</span>' : ""}
+      ${t.source_thread_id ? `<a href="${esc(GMAIL_THREAD(t.source_thread_id))}" target="_blank" rel="noopener">Open thread</a>` : ""}
+    </div>
+    ${t.source_quote ? `<div class="task-quote">“${esc(t.source_quote)}”</div>` : ""}
+    <div class="answer-body" id="ab${a.id}">${markGaps(text)}</div>
+    <textarea class="field answer-edit hidden" id="ae${a.id}" rows="7">${esc(text)}</textarea>
+    <div class="controls">
+      <button class="btn btn-quiet btn-sm" data-answer-edit="${a.id}">Edit</button>
+      <button class="btn btn-quiet btn-sm hidden" data-answer-save="${a.id}">Save</button>
+      <button class="btn btn-quiet btn-sm" data-answer-regen="${t.id}">Regenerate</button>
+      <span class="spacer"></span>
+      ${staged
+        ? `<button class="btn btn-quiet btn-sm" data-answer-unstage="${a.id}">Unstage</button>`
+        : `<button class="btn btn-go btn-sm" data-answer-approve="${a.id}">Approve</button>`}
+      <button class="btn btn-quiet btn-sm" data-answer-dismiss="${a.id}">Dismiss</button>
+    </div>
+    <div class="result"></div>
+  </div>`;
+}
+
+function renderAsks() {
+  const c = A.counts;
+  $("cA").textContent = c.draft + c.staged;
+
+  const pendingRows = (A.pending || []).map(t => `<div class="task">
+      <span></span>
+      <div>
+        <div class="task-title">${t.list_index ? `<span class="idx">#${esc(t.list_index)}</span>` : ""}${esc(t.title)}</div>
+        <div class="task-meta"><span>${day(t.requested_at)}</span>
+          ${(t.ask_count || 1) > 1 ? `<span class="flag flag-ask">Asked ×${t.ask_count}</span>` : ""}
+          ${t.source === "manual" || !t.source_thread_id
+            ? `<span class="meta">added by hand — no thread to answer from</span>`
+            : `<button class="quote-toggle" data-answer-regen="${t.id}">Draft an answer</button>`}
+        </div>
+      </div><span></span>
+    </div>`).join("");
+
+  const more = (A.pending_total || 0) - (A.pending || []).length;
+
+  $("panel-asks").innerHTML = `
+    <div class="tiles">
+      <div class="tile"><b>${c.draft}</b><span>Drafts</span></div>
+      <div class="tile tile-green"><b>${c.staged}</b><span>Staged</span></div>
+      <div class="tile tile-amber"><b>${c.flagged}</b><span>Flagged</span></div>
+      <div class="tile"><b>${c.pending}</b><span>Not drafted</span></div>
+    </div>
+    <div class="controls">
+      <button class="btn btn-sm" data-asks-draft="1"${c.staged ? "" : " disabled"}>Create Gmail draft${c.staged ? ` (${c.staged})` : ""}</button>
+      <span class="meta">Assembles every staged answer into one draft to Debi, in her numbering. Never sends.</span>
+    </div>
+    <div class="result note-controls" id="asksResult"></div>
+    ${A.answers.length ? A.answers.map(answerCard).join("") : `<div class="empty">
+      <b>No answers drafted yet.</b><p>Pick an ask below and draft an answer to it.</p></div>`}
+    <h2 class="sec">Not drafted yet${more > 0 ? ` — showing ${A.pending.length} of ${c.pending}` : ""}</h2>
+    ${pendingRows || `<div class="empty"><b>Every open ask has an answer.</b></div>`}`;
+}
+
+// -------------------------------------------------------------- Follow Ups
+async function loadFollowups() {
+  try { F = await ask("followups"); renderFollowups(); updateLede(); }
+  catch (e) {
+    if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
+    $("panel-followups").innerHTML = `<div class="empty"><b>Follow ups couldn't load.</b>
+      <p><span class="meta">${esc(e.message)}</span></p></div>`;
+  }
+}
+
+function followupCard(r) {
+  const t = r.task || {};
+  const text = r.edited_draft ?? r.ai_draft ?? "";
+  const sent = r.status === "sent";
+  const gap = /\[[^\]]{3,}\]/.test(text);
+
+  return `<div class="card-plain${sent ? " staged" : ""}" data-followup="${r.id}">
+    <div class="task-title">${esc(r.target_name || "(no name)")}</div>
+    <div class="task-meta">
+      <span>Attempt ${r.attempt_no}</span>
+      ${r.days_open != null ? `<span class="flag ${r.days_open > 7 ? "flag-old" : "flag-due"}">${r.days_open} days open</span>` : ""}
+      ${r.tone === "firmer" ? '<span class="flag flag-warn">Firmer</span>' : ""}
+      ${sent ? `<span class="flag flag-ok">Sent ${day(r.last_attempt_at)}</span>` : ""}
+      ${gap ? '<span class="flag flag-warn">Has a gap to fill</span>' : ""}
+    </div>
+    <div class="task-meta"><span class="meta">${esc(t.title || "")}</span></div>
+    <label for="fe${r.id}">To</label>
+    <input class="field" id="fe${r.id}" type="email" value="${esc(r.target_email || "")}"
+           placeholder="no address found in the thread — add one"${sent ? " disabled" : ""}>
+    <label for="fs${r.id}">Subject</label>
+    <input class="field" id="fs${r.id}" value="${esc(r.subject || "")}"${sent ? " disabled" : ""}>
+    <textarea class="field" id="ft${r.id}" rows="8"${sent ? " disabled" : ""}>${esc(text)}</textarea>
+    ${sent ? "" : `<div class="controls">
+      <button class="btn btn-quiet btn-sm" data-fu-save="${r.id}">Save</button>
+      <button class="btn btn-quiet btn-sm" data-fu-firmer="${t.id}">Firmer</button>
+      <span class="spacer"></span>
+      <button class="btn btn-go btn-sm" data-fu-send="${r.id}">Send</button>
+      <button class="btn btn-quiet btn-sm" data-fu-dismiss="${r.id}">Dismiss</button>
+    </div>`}
+    ${sent ? `<div class="controls"><button class="btn btn-quiet btn-sm" data-fu-answered="${r.id}">Mark answered</button></div>` : ""}
+    <div class="result"></div>
+  </div>`;
+}
+
+function renderFollowups() {
+  const rows = F.rows || [];
+  $("cF").textContent = rows.filter(r => r.status === "draft").length;
+
+  // Only tasks whose wording actually asks Erica to chase a named person are
+  // candidates; the generator decides, and says no when nobody is named.
+  const candidates = (T?.tasks || []).filter(t =>
+    t.status === "open" && /follow up|check with|chase|reach out|circle back|touch base/i.test(t.title + " " + (t.detail || "")))
+    .filter(t => !rows.some(r => r.task_id === t.id));
+
+  $("panel-followups").innerHTML = `
+    <div class="result note-controls" id="fuResult"></div>
+    ${rows.length ? rows.map(followupCard).join("") : `<div class="empty">
+      <b>Nothing to chase.</b><p>Draft one from a task below that asks you to follow up with someone.</p></div>`}
+    ${candidates.length ? `<h2 class="sec">Tasks that look like a follow up</h2>
+      ${candidates.slice(0, 25).map(t => `<div class="task"><span></span><div>
+        <div class="task-title">${esc(t.title)}</div>
+        <div class="task-meta"><span>${day(t.requested_at)}</span>
+          <button class="quote-toggle" data-fu-gen="${t.id}">Draft a chase</button></div>
+      </div><span></span></div>`).join("")}` : ""}`;
+}
+
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry]");
+  const t = e.target.closest("[data-save],[data-dismiss],[data-csv],[data-retry],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered]");
   if (!t && e.target.id !== "noteAdd") return;
   const btn = t || $("noteAdd");
 
@@ -568,6 +759,112 @@ document.addEventListener("click", async e => {
     } catch (err) { btn.disabled = false; alert(err.message); }
     return;
   }
+  // ---- Asks
+  if (btn.dataset.asksRetry) return loadAsks();
+  if (btn.dataset.answerEdit) {
+    const id = btn.dataset.answerEdit;
+    $("ab" + id).classList.add("hidden");
+    $("ae" + id).classList.remove("hidden");
+    btn.classList.add("hidden");
+    btn.parentElement.querySelector("[data-answer-save]").classList.remove("hidden");
+    return;
+  }
+  if (btn.dataset.answerSave) {
+    const id = btn.dataset.answerSave, out = btn.closest(".card-plain").querySelector(".result");
+    btn.disabled = true;
+    try { await ask("save", { id: Number(id), edited_draft: $("ae" + id).value }); await loadAsks(); }
+    catch (err) { out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; btn.disabled = false; }
+    return;
+  }
+  if (btn.dataset.answerRegen) {
+    const label = btn.textContent; btn.disabled = true; btn.textContent = "Drafting…";
+    const out = btn.closest(".card-plain")?.querySelector(".result") || $("asksResult");
+    try { await ask("generate", { task_id: Number(btn.dataset.answerRegen) }); await loadAsks(); }
+    catch (err) {
+      // A 422 here is the verification gate refusing to invent an answer with
+      // nothing to source it from. That is the feature, so say it plainly.
+      if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`;
+      btn.disabled = false; btn.textContent = label;
+    }
+    return;
+  }
+  for (const [key, action] of [["answerApprove","approve"],["answerUnstage","unstage"],["answerDismiss","dismiss"]]) {
+    if (btn.dataset[key]) {
+      const out = btn.closest(".card-plain").querySelector(".result");
+      btn.disabled = true;
+      try { await ask(action, { id: Number(btn.dataset[key]) }); await loadAsks(); }
+      catch (err) { out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; btn.disabled = false; }
+      return;
+    }
+  }
+  if (btn.dataset.asksDraft) {
+    const out = $("asksResult"); btn.disabled = true;
+    const label = btn.textContent; btn.textContent = "Creating…";
+    try {
+      const r = await ask("create_draft");
+      out.innerHTML = `<div class="note note-ok">${esc(r.note)} ${r.answers} ${r.answers === 1 ? "answer" : "answers"}. `
+        + `<a href="${esc(r.gmail_url)}" target="_blank" rel="noopener">Open Gmail drafts</a></div>`;
+      await loadAsks();
+    } catch (err) { out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; }
+    btn.disabled = false; btn.textContent = label;
+    return;
+  }
+
+  // ---- Follow ups
+  if (btn.dataset.fuGen || btn.dataset.fuFirmer) {
+    const taskId = Number(btn.dataset.fuGen || btn.dataset.fuFirmer);
+    const tone = btn.dataset.fuFirmer ? "firmer" : "normal";
+    const label = btn.textContent; btn.disabled = true; btn.textContent = "Drafting…";
+    const out = btn.closest(".card-plain")?.querySelector(".result") || $("fuResult");
+    try {
+      const r = await ask("followup_generate", { task_id: taskId, tone });
+      if (!r.is_followup) {
+        if (out) out.innerHTML = `<div class="note note-bad">${esc(r.reason)}</div>`;
+        btn.disabled = false; btn.textContent = label; return;
+      }
+      await loadFollowups();
+    } catch (err) {
+      if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`;
+      btn.disabled = false; btn.textContent = label;
+    }
+    return;
+  }
+  if (btn.dataset.fuSave) {
+    const id = btn.dataset.fuSave, out = btn.closest(".card-plain").querySelector(".result");
+    btn.disabled = true;
+    try {
+      await ask("followup_save", { id: Number(id), edited_draft: $("ft" + id).value,
+        subject: $("fs" + id).value, target_email: $("fe" + id).value });
+      out.innerHTML = `<div class="note note-ok">Saved.</div>`;
+    } catch (err) { out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; }
+    btn.disabled = false;
+    return;
+  }
+  if (btn.dataset.fuSend) {
+    const id = btn.dataset.fuSend, out = btn.closest(".card-plain").querySelector(".result");
+    const to = $("fe" + id).value.trim();
+    // This sends a real email to someone outside SPARC, so it is confirmed
+    // once, by name, and one at a time.
+    if (!confirm(`Send this follow up to ${to || "(no address)"}?`)) return;
+    btn.disabled = true;
+    try {
+      await ask("followup_save", { id: Number(id), edited_draft: $("ft" + id).value,
+        subject: $("fs" + id).value, target_email: to });
+      const r = await ask("followup_send", { id: Number(id) });
+      out.innerHTML = `<div class="note note-ok">Sent to ${esc(r.sent_to)}.</div>`;
+      setTimeout(loadFollowups, 600);
+    } catch (err) { out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; btn.disabled = false; }
+    return;
+  }
+  for (const [key, action] of [["fuDismiss","followup_dismiss"],["fuAnswered","followup_answered"]]) {
+    if (btn.dataset[key]) {
+      btn.disabled = true;
+      try { await ask(action, { id: Number(btn.dataset[key]) }); await loadFollowups(); }
+      catch (err) { alert(err.message); btn.disabled = false; }
+      return;
+    }
+  }
+
   if (btn.dataset.scan) {
     btn.disabled = true; const label = btn.textContent; btn.textContent = "Scanning…";
     const out = $("panel-today").querySelector(".result");

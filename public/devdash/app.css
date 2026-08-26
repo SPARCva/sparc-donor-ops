@@ -123,7 +123,7 @@
   .task-side{display:flex;align-items:center;gap:6px}
   .task-x{border:0;background:none;color:var(--ink-40);font-size:19px;line-height:1;padding:2px 6px;border-radius:6px}
   .task-x:hover{color:var(--red);background:var(--red-soft)}
-  .idx{font-family:Archivo;font-weight:700;color:var(--ink-40);font-size:12.5px}
+  .idx{font-family:Archivo;font-weight:700;color:var(--ink-40);font-size:12.5px;margin-right:6px}
   .quote-toggle{border:0;background:none;color:var(--blue);padding:0;font-size:12.5px;text-decoration:underline}
 
   .flag{font-size:11px;font-weight:600;padding:2px 7px;border-radius:20px;white-space:nowrap}
@@ -133,6 +133,21 @@
 
   .daygroup{margin:0 0 20px}
   .daygroup h3{font-size:14px;margin:0 0 8px;color:var(--ink-60)}
+
+  /* --------------------------------------------------- Asks & Follow ups */
+  .card-plain{background:var(--card);border:1px solid var(--rule);border-radius:10px;
+              padding:14px 16px;margin-bottom:10px}
+  .card-plain.staged{border-color:var(--green);background:var(--green-soft)}
+  .answer-body{white-space:pre-wrap;line-height:1.55;margin:10px 0 4px}
+  .answer-edit{white-space:pre-wrap;font-family:inherit;margin:10px 0 4px}
+  /* A gap the generator could not source. It has to be visible in the prose,
+     not just counted in a flag, or it gets sent with [date] still in it. */
+  .gap{background:var(--amber-soft);color:var(--amber);font-weight:600;
+       border-radius:3px;padding:0 3px}
+  .flag-warn{background:var(--amber-soft);color:var(--amber)}
+  .flag-ok{background:var(--green-soft);color:var(--green)}
+  .flag-staged{background:var(--green);color:#fff}
+  h2.sec{font-size:15px;margin:22px 0 10px;color:var(--ink-60)}
 
   @media (max-width:620px){
     .card{grid-template-columns:48px 1fr;gap:12px;padding:14px}

@@ -25,25 +25,33 @@ change locally changes the real records.** There is no staging environment.
 Netlify project `sparc-donor-ops`, publishing from `public/`, no build command.
 Pushing to `main` deploys to production. Branch pushes create previews.
 
-The dashboard is reachable at three URLs, all served by this one deploy:
+The dashboard itself is served at two URLs by this one deploy:
 
-- `https://sparcsolutions.org/devdash` — how staff reach it. The `sparcwebsite`
-  repo proxies `/devdash` and `/devdash/*` here in its `netlify.toml`; nothing
-  is copied and there is no second deploy.
-- `https://sparc-donor-ops.netlify.app/devdash/` — this project directly.
+- `https://sparc-donor-ops.netlify.app/devdash/` — the canonical address, and
+  where staff end up.
 - `https://sparc-donor-ops.netlify.app/` — the catch-all serves the same page.
 
-**Because of that first URL, the page is served from `public/devdash/` and its
-asset references must be absolute and carry that base path** —
-`href="/devdash/app.css"`, `url(/devdash/fonts/inter-latin.woff2)`.
+Staff start at `https://sparcsolutions.org/devdash`, which is **not** a proxy
+of this deploy. That domain is served by GitHub Pages from the `sparcwebsite`
+repo, and Pages cannot proxy — `/devdash` there is a real file,
+`devdash/index.html`, that forwards here. The address bar changes after the
+hop. Do not "restore" a `status = 200` proxy rule for it: that has been tried
+twice and both times the path 404'd for staff while still working on
+`*.netlify.app`, which is where it gets tested. See `CLAUDE.md` for the
+one-command check, and `.github/workflows/devdash-guard.yml` in `sparcwebsite`
+for the guard that now enforces it.
 
-The base path is not decoration. `sparcsolutions.org/devdash` has no trailing
-slash, so a relative `app.css` resolves to `sparcsolutions.org/app.css` — the
-marketing site's root — and the page loads unstyled. Adding a redirect to the
-trailing-slash form does not help: Netlify matches `/devdash` and `/devdash/`
-as the same path, so such a rule redirects to itself forever. Absolute
-`/devdash/...` paths resolve correctly either way. If you add an image, font or
-script, give it the `/devdash/` prefix too.
+**The page is served from `public/devdash/`, so its asset references must be
+absolute and carry that base path** — `href="/devdash/app.css"`,
+`url(/devdash/fonts/inter-latin.woff2)`.
+
+The base path is not decoration. The catch-all in `netlify.toml` sends any
+unmatched path to `/devdash/index.html`, so a relative `app.css` requested
+from a URL without a trailing slash resolves to the project root and comes
+back as that HTML page with the wrong content type — and the dashboard loads
+unstyled. Absolute `/devdash/...` paths resolve correctly from every URL that
+serves the page. If you add an image, font or script, give it the `/devdash/`
+prefix too.
 
 ## Layout
 

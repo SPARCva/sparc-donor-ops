@@ -24,7 +24,10 @@ It is not public-facing.
 - **Hosting:** Netlify project `sparc-donor-ops`
   (site id `3afeba34-e865-4e35-a30e-27a59dce6b30`, team id
   `6980b8c5cb88ed7684233e75`). Deployed and live since 21 Aug 2026 at
-  https://sparc-donor-ops.netlify.app and at https://sparcsolutions.org/devdash.
+  https://sparc-donor-ops.netlify.app/devdash/. Staff start at
+  https://sparcsolutions.org/devdash, which forwards here — that path is a
+  file on GitHub Pages, not a proxy. See "How staff reach it" below before
+  changing anything about it.
 
 Frontend talks to the backend over `POST` with a JSON `{ action, ...body }`
 envelope and a `Bearer` token in the `Authorization` header. Both endpoints are
@@ -76,19 +79,40 @@ already declared at the top of `public/devdash/app.js`.
 Netlify builds from `main`. `publish = "public"`, no build command. A push to
 `main` is a production deploy. Preview deploys on branches.
 
-The same deploy is also served at `https://sparcsolutions.org/devdash`, via a
-`status = 200` proxy rewrite in the `sparcwebsite` repo's `netlify.toml`. That
-is the URL staff use. Consequence for any change in `public/`: the page lives in
-`public/devdash/` and **every asset reference must be absolute and start with
+### How staff reach it
+
+`https://sparcsolutions.org/devdash` is **not** a proxy of this deploy, and
+must not be turned into one. That domain is served by **GitHub Pages** from
+the `sparcwebsite` repo, and Pages cannot proxy anything — no rewrites, no
+`netlify.toml`. Check it in one command:
+
+```
+curl -sI https://sparcsolutions.org | grep server   # GitHub.com
+curl -s  https://sparcsolutions.org/netlify.toml    # 200 — the file itself
+```
+
+`sparcsolutions.org/devdash` is a real file, `devdash/index.html` in
+`sparcwebsite`, which forwards staff here. So the address bar changes after
+the hop and staff land on `sparc-donor-ops.netlify.app/devdash/`. That
+forwarding page is protected by `.github/workflows/devdash-guard.yml` in that
+repo; a `status = 200` proxy rule has been restored there twice and both
+times `/devdash` 404'd for staff while still working on `*.netlify.app`,
+which is where it gets tested. The DNS is not being repointed — treat that as
+settled and do not propose it.
+
+**The `/devdash/` base path is still required**, for a different reason than
+the docs used to give. This project's own deploy serves the app at
+`/devdash/`, so **every asset reference must be absolute and start with
 `/devdash/`** — `href="/devdash/app.css"`,
 `url(/devdash/fonts/inter-latin.woff2)`.
 
 Do not "flatten" this back to the project root or switch to relative paths.
-`sparcsolutions.org/devdash` has no trailing slash, so a relative `app.css`
-resolves to the marketing site's root and the page loads unstyled; a redirect
-to the trailing-slash form loops, because Netlify matches `/devdash` and
-`/devdash/` as the same path. The `/accessibility` app on the same site is
-built with a base path for exactly this reason.
+The catch-all in `netlify.toml` sends any unmatched path to
+`/devdash/index.html`, so a relative `app.css` requested from a URL without a
+trailing slash resolves to the project root and comes back as HTML with the
+wrong content type — the page then loads unstyled. Absolute `/devdash/…`
+paths resolve correctly from every URL that serves the page. The
+`/accessibility` app is built with a base path for the same reason.
 
 Before pushing anything to `main`, confirm the change with Erica — this is a
 live tool she relies on daily, and there is no staging data.

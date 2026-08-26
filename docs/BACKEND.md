@@ -24,6 +24,7 @@ Base URL: `https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/<slug>`
 | `bloomerang-attach` | Attaches letters and documents to Bloomerang records |
 | `gala-outreach` | Sponsor outreach tracking — **queue retired 26 Aug 2026**, see below |
 | `bloomerang-snapshot` | Refreshes the local mirror of Bloomerang transactions |
+| `gift-scan` | Finds donations, sponsorships and grants in Erica's mail |
 
 Three older functions on the same project (`virtual-summit-register`,
 `volunteer-register`, `photo-gallery`) belong to the public SPARC website, not
@@ -287,6 +288,59 @@ and `Gala 2026 - Tickets`. **Neither exists.** That file's own comment says "A m
 name is the main failure mode", and it is gated behind `ATTRIBUTION_ENABLED = false`.
 Turning it on as written would send names Bloomerang does not have.
 
+## `gift-scan` actions
+
+| Action | Notes |
+| --- | --- |
+| `scan` (default) | `{ days?, max_messages?, max_extractions? }` — reads Erica's mail, classifies each candidate, stages a `crm_inbox` row per gift. Returns `{ donations, sponsorships, grants, not_a_gift, already_decided, remaining, complete }`. |
+
+Runs three times a day, five minutes behind the task scans so the two do not contend
+for the edge worker.
+
+### Why it is not part of `daily-sweep`
+
+`daily-sweep`'s money path had three holes, and all three caused gifts to be **missed**
+rather than mis-parsed:
+
+1. Its Gmail query is `from:kat@sparcsolutions.org`. A gift forwarded to Erica by Debi,
+   by a donor, or by a board member was never seen at all.
+2. It has no notion of a grant. No query, no keywords, nothing.
+3. Sponsorships were only caught as a subject keyword on the **guest** query, so a
+   sponsorship email was judged as an RSVP rather than as money.
+
+And its gate was three regexes. The tasks pipeline dropped its regex fallback
+deliberately — the pre-2026-08-15 version "read email signatures as donor names" — but
+the money path kept one, so the half of the sweep that finds actual money was the half
+still guessing.
+
+`daily-sweep` is unchanged and still owns Kat's check emails and the guest queue. This
+function only adds what was missing.
+
+### What it will not do
+
+It never writes to Bloomerang and never creates a constituent. Every hit lands in
+`crm_inbox` at `needs_review` — the existing approve-and-push path where Erica edits the
+record before anything is sent.
+
+It never invents a figure. A gift whose amount is not stated is staged with `amount`
+null and flagged `amount_missing`, because a plausible amount on a donor record is worse
+than a blank one: the blank gets asked about, the plausible one does not. The same holds
+for the donor, the date and the designation, each with its own flag.
+
+A negative verdict is written to `source_tombstones` with `source: 'gift'`. Without it
+the scan spends its whole budget re-judging the same rejected mail and never advances —
+the same lesson `daily-sweep` learned with `rsvp_candidates.status = 'no_signal'`.
+
+`source` on the staged row is `donation`, `sponsorship` or `grant`, which is what the
+Bloomerang tab sections on. `crm_inbox_source_check` was widened on 26 Aug 2026 to
+permit the last two.
+
+**First live run, 26 Aug 2026:** found a **$6,000 Micron Technology grant** arriving via
+Benevity — a grant, from a sender that is not Kat, so invisible to both of the old
+sweep's queries. It flagged `date_missing` rather than guessing, and declined to split
+the award into the $1,000 / $5,000 that an inline comment in the thread implied, because
+the award letter states a single figure.
+
 ## Scheduled jobs
 
 | Job | Schedule (UTC) | Calls |
@@ -296,6 +350,7 @@ Turning it on as written would send names Bloomerang does not have.
 | `sync-constituents` | 07:00 Sun | `bloomerang` `sync_accounts` |
 | `sync-bloomerang-transactions` | 07:30 daily | `bloomerang-snapshot` |
 | `tasks-scan-0800` / `-1200` / `-1700` | 12:00 / 16:00 / 21:00 | `tasks` `scan` |
+| `gift-scan-0800` / `-1200` / `-1700` | 12:05 / 16:05 / 21:05 | `gift-scan` `scan` |
 
 `call_edge` reads `system_config.cron_token`; `call_edge_svc` reads `tasks_cron_token`. Both
 are app session tokens, not API keys, so they survive Supabase key rotation — but they

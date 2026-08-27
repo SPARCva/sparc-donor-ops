@@ -467,7 +467,7 @@ function giftCard(i) {
         <div class="controls">
           ${i.match_constituent_id
             ? `<span class="state s-ok">Matched #${i.match_constituent_id}</span>`
-            : `<span class="state s-bad">No match</span>
+            : `<span class="state s-bad" id="ms${i.id}">Looking for a match\u2026</span>
                <input class="field med" data-field="_accountNumber" type="number" placeholder="Account #">`}
           <button class="btn btn-go btn-sm" data-approve="${i.id}" ${i.status==="approved"?"disabled":""}>Send to Bloomerang</button>
           <button class="btn btn-quiet btn-sm" data-reject="${i.id}">Not a gift</button>
@@ -480,8 +480,59 @@ function giftCard(i) {
       </div></div>`;
 }
 
+// gift-scan stages every donation, sponsorship and grant with match_constituent_id
+// NULL — it has no matching step at all — so the card read "No constituent match"
+// even for a donor who is plainly in Bloomerang, and bloomerang.approve then
+// refused the push with the same words. Creating a record from that screen makes
+// a duplicate of a constituent that already exists, which is how this database
+// came to hold two to four records for most donors.
+//
+// So the match is looked up here, per unmatched row, against the canonical
+// matcher in the bloomerang function. A confident hit (a confirmed sender
+// mapping, or a unique email) fills the account number in. A name-only hit is
+// offered but NOT filled in: a wrong account writes a gift onto the wrong
+// donor's record, so that one needs a human to agree to it.
+const MATCH_CONFIDENT = 0.9;
+
+async function findMatches(rows) {
+  for (const i of rows) {
+    if (i.match_constituent_id) continue;
+    const el = $("ms" + i.id);
+    if (!el) continue;
+    const x = i.extraction || {};
+    const name = x.donor_organization || x.donor_name || null;
+    const email = x.donor_email || null;
+    if (!name && !email) { el.textContent = "No name to match on"; continue; }
+    try {
+      const m = await blm("match", { name: name || undefined, email: email || undefined });
+      const card = el.closest(".card");
+      const field = card?.querySelector('[data-field="_accountNumber"]');
+      if (m.account_number == null) {
+        el.className = "state s-bad";
+        el.textContent = m.method === "ambiguous_name"
+          ? `${(m.candidates || []).length} records share that name` : "No match on file";
+        return;
+      }
+      if ((m.score ?? 0) >= MATCH_CONFIDENT) {
+        if (field) field.value = m.account_number;
+        el.className = "state s-ok";
+        el.textContent = `Matched #${m.account_number}`;
+        el.title = m.method;
+      } else {
+        el.className = "state s-warn";
+        el.innerHTML = `Likely #${esc(m.account_number)} `
+          + `<button class="quote-toggle" data-use-acct="${i.id}:${esc(m.account_number)}">use it</button>`;
+        el.title = m.method;
+      }
+    } catch { el.textContent = "Match lookup failed"; }
+  }
+}
+
 function renderBloomerang() {
   const rows = (D.inbox||[]).filter(i => ["needs_review","approved","failed","pushed"].includes(i.status));
+  // Fired after the panel is painted, so the cards exist to write into. Not
+  // awaited: a slow match lookup must not hold up the queue rendering.
+  setTimeout(() => findMatches(rows.filter(i => i.status !== "pushed")), 0);
   const pend = rows.filter(i => i.status !== "pushed")
                    .sort((a,b) => new Date(b.received_at||0) - new Date(a.received_at||0));
   const pushed = rows.filter(i => i.status === "pushed");
@@ -731,7 +782,11 @@ function owedRow(g) {
         ${g.amount == null ? `<span class="flag flag-warn">no amount</span>` : ""}
         <button class="quote-toggle" data-letter-gen='${esc(JSON.stringify({
           donor_display_name: who, amount: g.amount, gift_date: (g.donation_date || g.gift_date || "").slice(0,10),
-          gift_type: g.gift_type || undefined, donation_id: g.donation_id ?? undefined,
+          gift_type: g.gift_type || undefined,
+          // donation_ack_status exposes the donation as `id`. This read
+          // `g.donation_id`, which the view does not have, so every letter went
+          // off unlinked and the gift could never be marked as thanked.
+          donation_id: g.id ?? g.donation_id ?? undefined,
         }))}'>Write the letter</button>
       </div>
       <div class="result"></div>
@@ -1213,7 +1268,7 @@ function renderDiff(id, d) {
 
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-retry],[data-ask-del],[data-ask-restore],[data-blm-new],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-tcsv],[data-crange],[data-gala],[data-gala-csv],[data-letters-retry],[data-letter-gen],[data-letter-sent],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr],[data-use-date],[data-letter-del],[data-letters-batch],[data-doc-revise],[data-doc-revsave],[data-doc-return]");
+  const t = e.target.closest("[data-retry],[data-ask-del],[data-ask-restore],[data-blm-new],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-tcsv],[data-crange],[data-gala],[data-gala-csv],[data-letters-retry],[data-letter-gen],[data-letter-sent],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr],[data-use-date],[data-use-acct],[data-letter-del],[data-letters-batch],[data-doc-revise],[data-doc-return]");
   if (!t) return;
   const btn = t;
 
@@ -1346,6 +1401,78 @@ document.addEventListener("click", async e => {
     btn.disabled = true;
     try { await doc("mark", { id: Number(id), status }); await loadDocs(); }
     catch (err) { alert(err.message); btn.disabled = false; }
+    return;
+  }
+
+  // ---- Gala 2026
+  //
+  // Both of these were registered on the listener with no branch behind them,
+  // so the sub-tabs did not switch and the download did nothing. saveCSV() was
+  // sitting unused for the same reason.
+  if (btn.dataset.gala) { GALA_SUB = btn.dataset.gala; renderGala(); return; }
+  if (btn.dataset.galaCsv) {
+    const lists = GALA_LISTS();
+    const cur = lists[btn.dataset.galaCsv] || lists.sponsors;
+    saveCSV("gala-" + btn.dataset.galaCsv, cur.cols, cur.rows.map(cur.cells));
+    return;
+  }
+
+  // ---- Answers: approve, unstage, dismiss
+  //
+  // All three were dead. Approve is the one that matters most: nothing could
+  // ever reach `staged`, so "Create Gmail draft" — which assembles the staged
+  // answers into one mail in Debi's numbering — had nothing to assemble and the
+  // whole Asks workflow stopped at the draft.
+  if (btn.dataset.answerApprove || btn.dataset.answerUnstage) {
+    const staging = !!btn.dataset.answerApprove;
+    const id = btn.dataset.answerApprove || btn.dataset.answerUnstage;
+    const out = btn.closest(".card-plain").querySelector(".result");
+    btn.disabled = true;
+    const label = btn.textContent; btn.textContent = staging ? "Approving\u2026" : "Unstaging\u2026";
+    try { await ask(staging ? "approve" : "unstage", { id: Number(id) }); await loadAsks(); }
+    catch (err) {
+      out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`;
+      btn.disabled = false; btn.textContent = label;
+    }
+    return;
+  }
+  if (btn.dataset.answerDismiss) {
+    const id = btn.dataset.answerDismiss;
+    const out = btn.closest(".card-plain").querySelector(".result");
+    // Dismissing an answer also parks its ask, so it does not come straight
+    // back as "not drafted yet". Say so before it happens.
+    if (!confirm("Dismiss this answer?\n\nThe ask is set aside too, so it stops being offered "
+      + "here. It stays open on the task list, and you can put it back.")) return;
+    btn.disabled = true;
+    try { await ask("dismiss", { id: Number(id) }); await loadAsks(); }
+    catch (err) { out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; btn.disabled = false; }
+    return;
+  }
+  if (btn.dataset.askRestore) {
+    const out = btn.closest(".task")?.querySelector(".result");
+    btn.disabled = true;
+    try { await ask("restore_task", { task_id: Number(btn.dataset.askRestore) }); await loadAsks(); }
+    catch (err) {
+      if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`;
+      btn.disabled = false;
+    }
+    return;
+  }
+
+  // ---- Follow ups: dismiss, mark answered. Both were dead.
+  if (btn.dataset.fuDismiss || btn.dataset.fuAnswered) {
+    const answered = !!btn.dataset.fuAnswered;
+    const id = btn.dataset.fuAnswered || btn.dataset.fuDismiss;
+    const out = btn.closest(".card-plain")?.querySelector(".result");
+    if (!answered && !confirm("Dismiss this follow up?")) return;
+    btn.disabled = true;
+    try {
+      await ask(answered ? "followup_answered" : "followup_dismiss", { id: Number(id) });
+      await loadFollowups();
+    } catch (err) {
+      if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`;
+      btn.disabled = false;
+    }
     return;
   }
 
@@ -1597,6 +1724,17 @@ document.addEventListener("click", async e => {
   if (btn.dataset.retry) return refresh();
   // Accepting the email's date for the gift date. Fills the box and stops
   // there, so it still goes to Bloomerang only when Send is pressed.
+  // Accepting a name-only constituent match. Fills the account number and stops
+  // there, so it still reaches Bloomerang only when Send is pressed.
+  if (btn.dataset.useAcct) {
+    const [id, acct] = btn.dataset.useAcct.split(":");
+    const card = document.querySelector(`[data-card="${id}"]`);
+    const field = card?.querySelector('[data-field="_accountNumber"]');
+    if (field) field.value = acct;
+    const el = $("ms" + id);
+    if (el) { el.className = "state s-ok"; el.textContent = `Using #${acct}`; }
+    return;
+  }
   if (btn.dataset.useDate) {
     const [id, iso] = btn.dataset.useDate.split(":");
     const el = document.getElementById("gfgift_date" + id);

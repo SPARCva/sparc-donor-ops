@@ -3,10 +3,14 @@ const BLM = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/bloomerang";
 const TSK = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/tasks";
 const ASK = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/asks";
 const DOC = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/docs";
-let TOKEN = null, USER = null, D = null, TAB = "today";
+const LTR = "https://ldxpockcgcxvsrbyhcnt.supabase.co/functions/v1/letters";
+let TOKEN = null, USER = null, D = null, TAB = "bloomerang";
 // Today and Completed load from their own endpoint, so they keep their own
 // state rather than hanging off the donor-ops dashboard payload.
-let T = null, C = null, CFROM = null, CTO = null, A = null, F = null, DOCS = null;
+// T still holds the task list even though Today is gone as a tab: Asks builds
+// its "not drafted yet" list from it, and Follow ups its candidates. L is the
+// letters payload.
+let T = null, C = null, CFROM = null, CTO = null, A = null, F = null, DOCS = null, L = null;
 
 // Session lives in sessionStorage, never localStorage: this is donor data on a
 // shared office machine, so the session must die with the tab. We keep the
@@ -131,14 +135,17 @@ document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () =>
   if (TAB === "asks" && !A) loadAsks();
   if (TAB === "followups" && !F) loadFollowups();
   if (TAB === "docs" && !DOCS) loadDocs();
+  if (TAB === "letters" && !L) loadLetters();
   updateLede();
 }));
 
-const PANELS = ["today","questions","notes","bloomerang","records","asks","followups","docs","completed"];
+const PANELS = ["bloomerang","gala","letters","asks","followups","docs","completed"];
 
 async function refresh() {
   PANELS.forEach(p => $("panel-"+p).innerHTML = `<div class="loading">Loading…</div>`);
-  loadToday();
+  // The task list still loads even though Today is gone: Asks builds its
+  // "not drafted yet" list from it and Follow ups its candidates.
+  loadTasks();
   try { D = await api("dashboard"); render(); }
   catch (e) {
     // 401 means the session is gone: return to sign-in rather than offering a
@@ -160,7 +167,7 @@ function backToSignin(msg) {
 function showFailure(e) {
   $("lede").textContent = "Can't reach the server.";
   $("ledeSub").textContent = "Nothing has been lost. This is usually a brief network problem.";
-  ["cQ","cN","cB","cR"].forEach(id => $(id).textContent = "—");
+  ["cB","cG","cL"].forEach(id => $(id).textContent = "—");
   const detail = e && e.message ? e.message : "";
   const html = `<div class="empty">
       <b>The dashboard couldn't load.</b>
@@ -168,9 +175,10 @@ function showFailure(e) {
       <div class="controls controls-center">
         <button class="btn btn-sm" data-retry="1">Try again</button>
       </div></div>`;
-  // Today and Completed have their own endpoint and their own failure state;
-  // a donor-ops outage should not blank a task list that loaded fine.
-  ["questions","notes","bloomerang","records"].forEach(p => $("panel-"+p).innerHTML = html);
+  // Asks, Follow ups, Needs editing and Completed have their own endpoints and
+  // their own failure states; a donor-ops outage should not blank a panel that
+  // loaded fine from somewhere else.
+  ["bloomerang","gala"].forEach(p => $("panel-"+p).innerHTML = html);
 }
 
 // The lede sits above every panel, so it has to describe whichever tab is
@@ -178,164 +186,71 @@ function showFailure(e) {
 // waiting on you." over a Today list with five open asks.
 function updateLede() {
   const lede = $("lede"), sub = $("ledeSub");
-  if (TAB === "today") {
-    if (!T) { lede.textContent = "Loading…"; sub.textContent = ""; return; }
-    const n = T.counts.open;
-    lede.textContent = n === 0 ? "Nothing is waiting on you." :
-      `${n} ${n === 1 ? "task" : "tasks"} open.`;
-    sub.textContent = n === 0
-      ? "No open asks from Debi."
-      : (T.counts.over_7_days > 0
-          ? `${T.counts.over_7_days} of them ${T.counts.over_7_days === 1 ? "has" : "have"} been open more than a week.`
-          : "Oldest ask first.");
-    return;
+  const set = (h, t) => { lede.textContent = h; sub.textContent = t; };
+
+  if (TAB === "bloomerang") {
+    if (!D) return set("Loading\u2026", "");
+    const pend = (D.inbox||[]).filter(i => ["needs_review","approved","failed"].includes(i.status));
+    return set(pend.length === 0 ? "Nothing is waiting to go to Bloomerang."
+                                 : `${pend.length} ${pend.length === 1 ? "record" : "records"} waiting on you.`,
+      pend.length === 0 ? "The scan runs at 8am, noon and 5pm."
+                        : "Each one is approved on its own. Nothing is sent until you press the button.");
+  }
+  if (TAB === "gala") {
+    if (!D) return set("Loading\u2026", "");
+    const committed = (D.sponsors||[]).reduce((n,x) => n + Number(x.amount||0), 0);
+    return set("An Evening to SPARCle \u2014 14 November 2026",
+      `${money(committed)} committed across ${(D.sponsors||[]).length} sponsors.`);
+  }
+  if (TAB === "letters") {
+    if (!L) return set("Loading\u2026", "");
+    const owed = (L.needs_letter || []).length;
+    return set(owed === 0 ? "Everyone has been thanked." : `${owed} owed a thank-you letter.`,
+      "Written against Debi's rules. Never emailed to the donor.");
   }
   if (TAB === "asks") {
-    if (!A) { lede.textContent = "Loading…"; sub.textContent = ""; return; }
+    if (!A) return set("Loading\u2026", "");
     const n = A.counts.draft + A.counts.staged;
-    lede.textContent = n === 0 ? "No answers drafted." : `${n} ${n === 1 ? "answer" : "answers"} drafted.`;
-    sub.textContent = A.counts.flagged > 0
-      ? `${A.counts.flagged} ${A.counts.flagged === 1 ? "has a flag" : "have flags"} to check before sending.`
-      : "Approve the ones you are happy with, then create the draft.";
-    return;
+    return set(n === 0 ? "No answers drafted." : `${n} ${n === 1 ? "answer" : "answers"} drafted.`,
+      A.counts.flagged > 0
+        ? `${A.counts.flagged} ${A.counts.flagged === 1 ? "has a flag" : "have flags"} to check before sending.`
+        : "Approve the ones you are happy with, then create the draft.");
   }
   if (TAB === "followups") {
     const n = F ? (F.rows || []).filter(r => r.status === "draft").length : 0;
-    lede.textContent = n === 0 ? "Nothing to follow up." : `${n} ${n === 1 ? "follow up" : "follow ups"} ready.`;
-    sub.textContent = "Each one sends on its own approval.";
-    return;
+    return set(n === 0 ? "Nothing to follow up." : `${n} ${n === 1 ? "follow up" : "follow ups"} ready.`,
+      "Each one sends on its own approval.");
   }
   if (TAB === "docs") {
-    if (!DOCS) { lede.textContent = "Loading…"; sub.textContent = ""; return; }
-    const n = DOCS.counts.needs_human;
-    lede.textContent = (DOCS.rows || []).length === 0 ? "No documents waiting."
-      : `${DOCS.rows.length} ${DOCS.rows.length === 1 ? "document" : "documents"} back from Debi.`;
-    sub.textContent = n === 0 ? "Nothing outstanding on them."
-      : `${n} ${n === 1 ? "change needs" : "changes need"} your eye.`;
-    return;
+    if (!DOCS) return set("Loading\u2026", "");
+    const n = DOCS.counts.needs_human, rows = (DOCS.rows || []).length;
+    return set(rows === 0 ? "No documents waiting."
+                          : `${rows} ${rows === 1 ? "document" : "documents"} back from Debi.`,
+      n === 0 ? "Nothing outstanding on them." : `${n} ${n === 1 ? "change needs" : "changes need"} your eye.`);
   }
   if (TAB === "completed") {
     const n = C ? (C.rows || []).length : 0;
-    lede.textContent = n === 0 ? "Nothing completed in this range." : `${n} completed.`;
-    sub.textContent = "Grouped by the day the box was ticked.";
-    return;
+    return set(n === 0 ? "Nothing completed in this range." : `${n} completed.`,
+      "Grouped by the day it was finished.");
   }
-  if (!D) { lede.textContent = "Loading…"; sub.textContent = ""; return; }
-  const q = D.counts.flags;
-  lede.textContent = q === 0 ? "Nothing is waiting on you." :
-    `${q} ${q === 1 ? "thing needs" : "things need"} an answer.`;
-  sub.textContent = q === 0
-    ? "Every gift on file has a donor, a designation and an amount."
-    : "Each one is blocking a thank-you letter or a Bloomerang record.";
 }
 
 function render() {
-  const q = D.counts.flags;
   updateLede();
-  $("cQ").textContent = q;
-  $("cN").textContent = D.counts.notes;
-  $("cB").textContent = D.counts.bloomerang;
-  $("cR").textContent = D.sponsors.length + D.rsvps.length + D.tuition.length + D.staging.length + D.auction.length;
-  renderQuestions(); renderNotes(); renderBloomerang(); renderRecords();
+  renderBloomerang(); renderGala();
 }
 
-// ------------------------------------------------------------- questions
-const LEVELS = ["Event Sponsor","Champion","Hero","Leader","Partner","Advocate","Friend"];
-const SRC = { sponsorships:"Sponsorship", tuition_payments:"Tuition", donations_staging:"Donation",
-              thank_you_letters:"Letter", crm_inbox:"Email" };
-
-function editor(f) {
-  const id = esc(f.row_id);
-  const types = (D.gift_types || []).map(t => `<option value="${t.code}">${esc(t.label)}</option>`).join("");
-  if (f.kind === "sponsor_level_mismatch" || f.kind === "sponsor_missing_amount") {
-    const s = D.sponsors.find(x => x.id === f.row_id) || {};
-    return `<select class="field" data-field="level"><option value="">Level…</option>
-      ${LEVELS.map(l => `<option ${s.level === l ? "selected":""}>${l}</option>`).join("")}</select>
-      <input class="field" data-field="amount" type="number" step="0.01" placeholder="Amount" value="${s.amount ?? ""}">
-      <button class="btn btn-go btn-sm" data-save="sponsorships:${id}">Save</button>`;
-  }
-  if (f.kind === "tuition_missing_participant")
-    return `<input class="field wide" data-field="participant" placeholder="Participant name">
-      <button class="btn btn-go btn-sm" data-save="tuition_payments:${id}">Save</button>`;
-  if (f.kind === "donation_missing_donor")
-    return `<input class="field wide" data-field="donor_name" placeholder="Donor name">
-      <button class="btn btn-go btn-sm" data-save="donations_staging:${id}">Save</button>`;
-  if (f.kind === "donation_uncategorised" || f.kind === "donation_parse_gap") {
-    const d = D.staging.find(x => x.id === f.row_id) || {};
-    return `<select class="field" data-field="gift_type"><option value="">What is it?…</option>${types}</select>
-      <input class="field" data-field="amount" type="number" step="0.01" placeholder="Amount" value="${d.amount ?? ""}">
-      <button class="btn btn-go btn-sm" data-save="donations_staging:${id}">Save</button>`;
-  }
-  if (f.kind === "check_email_review")
-    return `<button class="btn btn-quiet btn-sm" data-note='${esc(JSON.stringify({label:f.who, body:"Re: "+(f.question||"")}))}'>Add a note</button>`;
-  if (f.kind === "letter_incomplete") {
-    const l = (D.letters || []).find(x => x.id === f.row_id) || {};
-    // This flag is raised because the letter has no Drive file or no Gmail
-    // draft on record, and neither is writable from here — both are written
-    // when the letter is generated. The account number, category and notes
-    // are writable, so offer those and say plainly that saving them records
-    // what is known without clearing the flag.
-    return `<input class="field med" data-field="constituent_account_number" type="number" placeholder="Account #" value="${esc(l.constituent_account_number ?? "")}">
-      <input class="field" data-field="category" placeholder="Category" value="${esc(l.category ?? "")}">
-      <input class="field wide" data-field="notes" placeholder="Note" value="${esc(l.notes ?? "")}">
-      <button class="btn btn-go btn-sm" data-save="thank_you_letters:${id}">Save</button>
-      <div class="meta meta-row">Saving records these against the letter. The missing file or draft is created when the letter itself is generated, so this flag stays until then.</div>`;
-  }
-  // Records is read-only, so telling anyone to fix it there was a dead end.
-  return `<span class="meta">Nothing on this screen can resolve this one yet.</span>`;
-}
-
-function renderQuestions() {
-  const items = (D.flags || []).map(f => ({ ...f, _d: daysSince(f.date) }))
-    .sort((a,b) => (b._d ?? -1) - (a._d ?? -1));
-  $("panel-questions").innerHTML = !items.length
-    ? `<div class="empty"><b>Nothing is blocked.</b><p>Every gift on file has a donor, a designation and an amount.</p></div>`
-    : items.map(f => `
-      <div class="card" data-card="${esc(f.row_id)}">
-        ${waitBlock(f._d)}
-        <div>
-          <div class="who-line">${esc(f.who || "(unnamed)")}</div>
-          <div class="ask"><span class="tag">${SRC[f.table] || f.table}</span>${esc(f.question)}</div>
-          ${f.detail ? `<div class="excerpt">${esc(f.detail)}</div>` : ""}
-          <div class="controls">
-            ${editor(f)}
-            <div class="spacer"></div>
-            ${f.link ? `<a class="btn btn-quiet btn-sm" href="${esc(f.link)}" target="_blank" rel="noopener">Open email</a>` : ""}
-            <button class="btn btn-quiet btn-sm" data-dismiss='${esc(JSON.stringify({flag_kind:f.kind, table:f.table, row_id:f.row_id}))}'>Not relevant</button>
-          </div>
-          <div class="meta">${f.date ? "Received " + day(f.date) : "No date on the record"}${f.attachments ? ` · ${f.attachments} attachment${f.attachments===1?"":"s"}` : ""}</div>
-          <div class="result"></div>
-        </div>
-      </div>`).join("");
-}
-
-// ----------------------------------------------------------------- notes
-const TAGS = ["general","follow_up","question_for_kat","question_for_debi","bloomerang","gala","summit"];
-function renderNotes() {
-  const open = (D.notes||[]).filter(n => !n.resolved), done = (D.notes||[]).filter(n => n.resolved);
-  $("panel-notes").innerHTML = `
-    <div class="notebox">
-      <label for="noteBody">Add a note</label>
-      <textarea class="field" id="noteBody" placeholder="Something to follow up, ask Kat, or remember from this sweep…"></textarea>
-      <div class="controls">
-        <select class="field" id="noteTag">${TAGS.map(t=>`<option value="${t}">${t.replace(/_/g," ")}</option>`).join("")}</select>
-        <button class="btn btn-go btn-sm" id="noteAdd">Save note</button>
-      </div>
-      <div class="result" id="noteResult"></div>
-    </div>
-    ${open.length ? open.map(noteRow).join("") : `<div class="empty"><p>No open notes.</p></div>`}
-    ${done.length ? `<div class="sec"><h2>Resolved</h2></div>${done.map(noteRow).join("")}` : ""}`;
-}
-const noteRow = n => `
-  <div class="noterow ${n.resolved ? "done":""}">
-    <p>${esc(n.body)}</p>
-    <div class="meta"><span class="tag">${esc((n.tag||"general").replace(/_/g," "))}</span>${day(n.created_at)} · ${esc(n.created_by)}</div>
-    <div class="controls note-controls">
-      ${n.resolved ? `<button class="btn btn-quiet btn-sm" data-note-open="${n.id}">Reopen</button>`
-                   : `<button class="btn btn-go btn-sm" data-note-done="${n.id}">Done</button>`}
-      <button class="link" data-note-del="${n.id}">Delete</button>
-    </div>
-  </div>`;
+// A queued row's `source` says what the sweep decided it is. Everything in the
+// Bloomerang tab is grouped by it, so a grant never sits in the middle of the
+// donations and get skimmed past.
+const GIFT_SECTIONS = [
+  { key: "debi_request", title: "Debi asked for these",  hot: true  },
+  { key: "donation",     title: "Donations",             hot: false },
+  { key: "sponsorship",  title: "Sponsorships",          hot: false },
+  { key: "grant",        title: "Grants",                hot: false },
+  { key: "scan",         title: "From the check sweep",  hot: false },
+];
+const SOURCE_TITLE = Object.fromEntries(GIFT_SECTIONS.map(x => [x.key, x.title]));
 
 // ------------------------------------------------------------ bloomerang
 // Everything on a queued row is editable before it goes anywhere. What the
@@ -403,15 +318,102 @@ function blmNote(i) {
     </div>`;
 }
 
+// The money the sweep found, sectioned by what it decided each one is, and a
+// gift card per row. Everything is editable before it is sent; nothing here
+// reaches Bloomerang without the button being pressed.
+function giftFields(i) {
+  const x = i.extraction || {};
+  if (!["donation","sponsorship","grant"].includes(i.source)) return "";
+  const f = (k, label, type, val, ph) => `<div>
+      <label for="gf${k}${i.id}">${label}</label>
+      <input class="field" id="gf${k}${i.id}" data-gift="${k}" type="${type}"
+             value="${esc(val ?? "")}" placeholder="${esc(ph)}"></div>`;
+  return `<div class="blm-block">
+      <b>${esc(SOURCE_TITLE[i.source] || i.source)}</b>
+      <p class="hint">Read out of the email. Correct anything wrong before you send it.
+        ${x.confidence != null ? `Confidence ${Math.round(Number(x.confidence)*100)}%.` : ""}</p>
+      <div class="blm-grid">
+        ${f("donor_name","Donor","text",x.donor_name,"not stated in the email")}
+        ${f("donor_organization","Organisation","text",x.donor_organization,"not stated in the email")}
+        ${f("amount","Amount","number",x.amount,"not stated — fill in")}
+        ${f("gift_date","Date given","date",(x.gift_date||"").slice(0,10),"not stated")}
+        ${f("designation","Designation","text",x.designation,"not stated")}
+        ${i.source === "sponsorship" ? f("sponsor_level","Level","text",x.sponsor_level,"not stated") : ""}
+        ${x.method === "check" ? f("check_number","Check no.","text",x.check_number,"not stated") : ""}
+      </div>
+      ${x.evidence ? `<div class="task-quote">\u201c${esc(x.evidence)}\u201d</div>` : ""}
+      ${x.model_notes ? `<div class="meta">${esc(x.model_notes)}</div>` : ""}
+    </div>`;
+}
+
+function giftCard(i) {
+  const x = i.extraction || {};
+  const who = x.donor_organization || x.donor_name || i.from_name || i.from_email || "(unknown)";
+  const flags = (i.validation_flags || []).filter(f => f.endsWith("_missing"));
+  return `<div class="card" data-card="${i.id}">${waitBlock(daysSince(i.received_at))}
+      <div>
+        <div class="who-line">${esc(who)}${x.amount != null ? ` \u2014 ${money(x.amount)}` : ""}</div>
+        <div class="ask">${esc(i.subject || "(no subject)")}</div>
+        <div class="task-meta">
+          ${i.match_constituent_id
+            ? `<span class="flag flag-ok">Matched #${i.match_constituent_id}</span>`
+            : `<span class="flag flag-warn">No constituent match</span>`}
+          ${flags.map(f => `<span class="flag flag-warn">${esc(f.replace("_"," "))}</span>`).join("")}
+          ${i.extraction?.from_task_id ? `<span class="flag flag-ask">From Debi's ask</span>` : ""}
+          <span>${day(i.received_at)}</span>
+        </div>
+        ${blmConstituent(i)}
+        ${giftFields(i)}
+        ${blmNote(i)}
+        <div class="controls">
+          ${i.match_constituent_id
+            ? `<span class="state s-ok">Matched #${i.match_constituent_id}</span>`
+            : `<span class="state s-bad">No match</span>
+               <input class="field med" data-field="_accountNumber" type="number" placeholder="Account #">`}
+          <button class="btn btn-go btn-sm" data-approve="${i.id}" ${i.status==="approved"?"disabled":""}>Send to Bloomerang</button>
+          <button class="btn btn-quiet btn-sm" data-reject="${i.id}">Not a gift</button>
+          <div class="spacer"></div>
+          ${i.gmail_permalink ? `<a class="btn btn-quiet btn-sm" href="${esc(i.gmail_permalink)}" target="_blank" rel="noopener">Open email</a>`:""}
+        </div>
+        ${i.push_error ? `<div class="note note-bad">${esc(i.push_error).slice(0,300)}</div>`:""}
+        <div class="meta">status ${esc(i.status)}</div>
+        <div class="result"></div>
+      </div></div>`;
+}
+
 function renderBloomerang() {
   const rows = (D.inbox||[]).filter(i => ["needs_review","approved","failed","pushed"].includes(i.status));
-  const pend = rows.filter(i => i.status !== "pushed");
-  const guests = D.rsvp_candidates || [];
+  const pend = rows.filter(i => i.status !== "pushed")
+                   .sort((a,b) => new Date(b.received_at||0) - new Date(a.received_at||0));
+  const pushed = rows.filter(i => i.status === "pushed");
+  const guests = (D.rsvp_candidates || []).filter(g => g.status === "needs_review");
+  $("cB").textContent = pend.length;
+
+  const bySection = GIFT_SECTIONS.map(sec => {
+    const items = pend.filter(i => (i.source || "scan") === sec.key);
+    if (!items.length) return "";
+    return `<div class="sec"><h2>${sec.title}</h2><span class="pill ${sec.hot ? "pill-amber" : "pill-blue"}">${items.length}</span></div>`
+      + items.map(giftCard).join("");
+  }).join("");
+
   $("panel-bloomerang").innerHTML = `
-    ${guests.length ? `<div class="sec"><h2>Guests found in email</h2></div>` +
+    <div class="tiles">
+      <div class="tile tile-amber"><b>${pend.filter(i=>i.source==="debi_request").length}</b><span>From Debi</span></div>
+      <div class="tile"><b>${pend.filter(i=>i.source==="donation").length}</b><span>Donations</span></div>
+      <div class="tile"><b>${pend.filter(i=>i.source==="sponsorship").length}</b><span>Sponsorships</span></div>
+      <div class="tile"><b>${pend.filter(i=>i.source==="grant").length}</b><span>Grants</span></div>
+      <div class="tile tile-green"><b>${pushed.length}</b><span>Already sent</span></div>
+    </div>
+    <div class="controls">
+      <span class="meta">The scan runs at 8am, noon and 5pm. Each record is approved on its own \u2014 there is no bulk send.</span>
+    </div>
+    ${bySection || `<div class="empty"><b>Nothing is waiting to go to Bloomerang.</b>
+       <p>The next scan runs at 8am, noon and 5pm.</p></div>`}
+
+    ${guests.length ? `<div class="sec"><h2>Guests found in email</h2><span class="pill pill-blue">${guests.length}</span></div>` +
       guests.map(g => `<div class="card" data-card="${g.id}">${waitBlock(daysSince(g.received_at))}
-        <div><div class="who-line">${esc([g.proposed?.title,g.proposed?.first_name,g.proposed?.last_name].filter(Boolean).join(" "))}</div>
-        <div class="ask">Requested by ${esc(g.requested_by || "unknown")} — add as a comped guest?</div>
+        <div><div class="who-line">${esc([g.proposed?.title,g.proposed?.first_name,g.proposed?.last_name].filter(Boolean).join(" ") || "(name unclear)")}</div>
+        <div class="ask">Requested by ${esc(g.requested_by || "unknown")} \u2014 add as a comped guest?</div>
         ${g.raw_excerpt ? `<div class="excerpt">${esc(g.raw_excerpt)}</div>` : ""}
         <div class="controls">
           <button class="btn btn-go btn-sm" data-guest-yes="${g.id}">Add to RSVP list</button>
@@ -420,208 +422,116 @@ function renderBloomerang() {
           ${g.gmail_permalink ? `<a class="btn btn-quiet btn-sm" href="${esc(g.gmail_permalink)}" target="_blank" rel="noopener">Open email</a>`:""}
         </div><div class="result"></div></div></div>`).join("") : ""}
 
-    <div class="sec"><h2>Waiting to go to Bloomerang</h2></div>
-    ${!pend.length ? `<div class="empty"><p>Nothing queued for Bloomerang.</p></div>` : pend.map(i => `
-      <div class="card" data-card="${i.id}">${waitBlock(daysSince(i.received_at))}
-        <div>
-          <div class="who-line">${esc(i.from_name || i.from_email || "(unknown)")}</div>
-          <div class="ask"><span class="tag">${esc(i.record_type || "note")}</span>${esc(i.subject || "(no subject)")}</div>
-          ${i.extraction?.summary || i.raw_body ? `<div class="excerpt">${esc(i.extraction?.summary || (i.raw_body||"").slice(0,400))}</div>`:""}
-          ${i.extraction?.from_task_id ? `<div class="task-meta">
-            <span class="flag flag-ask">From Debi's ask</span>
-            ${i.extraction?.kind === "constituent" ? `<span class="flag flag-warn">Wants a constituent added</span>` : ""}
-          </div>` : ""}
-          ${blmConstituent(i)}
-          ${blmNote(i)}
-          <div class="controls">
-            ${i.match_constituent_id
-              ? `<span class="state s-ok">Matched #${i.match_constituent_id}</span>`
-              : `<span class="state s-bad">No constituent match</span>
-                 <input class="field med" data-field="_accountNumber" type="number" placeholder="Account #">`}
-            <button class="btn btn-go btn-sm" data-approve="${i.id}" ${i.status==="approved"?"disabled":""}>Send to Bloomerang</button>
-            <button class="btn btn-quiet btn-sm" data-reject="${i.id}">Reject</button>
-            <div class="spacer"></div>
-            ${i.gmail_permalink ? `<a class="btn btn-quiet btn-sm" href="${esc(i.gmail_permalink)}" target="_blank" rel="noopener">Open email</a>`:""}
-          </div>
-          ${i.push_error ? `<div class="note note-bad">${esc(i.push_error).slice(0,300)}</div>`:""}
-          <div class="meta">${day(i.received_at)} · status ${esc(i.status)}</div>
-          <div class="result"></div>
-        </div></div>`).join("")}
-
-    ${rows.filter(i=>i.status==="pushed").length ? `<div class="sec"><h2>Already in Bloomerang</h2></div>
-      <div class="tablewrap"><table><thead><tr><th>Who</th><th>Type</th><th>Subject</th><th>Pushed</th><th></th></tr></thead><tbody>
-      ${rows.filter(i=>i.status==="pushed").map(i=>`<tr>
-        <td>${esc(i.from_name||i.from_email||"—")}</td><td>${esc(i.record_type||"note")}</td>
-        <td>${esc(i.subject||"—")}</td><td class="num">${day(i.pushed_at)}</td>
+    ${pushed.length ? `<div class="sec"><h2>Already in Bloomerang</h2></div>
+      <div class="tablewrap"><table><thead><tr><th>Who</th><th>Type</th><th>Subject</th><th>Sent</th><th></th></tr></thead><tbody>
+      ${pushed.map(i=>`<tr>
+        <td>${esc(i.extraction?.donor_organization || i.extraction?.donor_name || i.from_name || "\u2014")}</td>
+        <td>${esc(SOURCE_TITLE[i.source] || i.record_type || "note")}</td>
+        <td>${esc(i.subject||"\u2014")}</td><td class="num">${day(i.pushed_at)}</td>
         <td><button class="link" data-undo="${i.id}">Undo</button></td></tr>`).join("")}
       </tbody></table></div>`:""}`;
 }
 
-// --------------------------------------------------------------- records
-// Donor names reach the two tables from different places and rarely match
+// ----------------------------------------------------- shared helpers
+// Donor names reach two tables from different places and rarely match
 // character for character: a trailing space, "Smith & Sons" against "Smith and
 // Sons", a doubled space. Matching on a normalised key stops a letter that did
-// go out from being reported as never sent. Apostrophes and full stops are
-// dropped rather than turned into spaces, or "St. Mary's" keys as "st mary s"
-// and stops matching "St Marys".
+// go out from being reported as never sent.
 const nameKey = s => String(s ?? "").toLowerCase().replace(/&/g, " and ")
-  .replace(/['’.]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  .replace(/['\u2019.]/g, "").replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 const letterFor = name => {
   const k = nameKey(name); if (!k) return null;
   return (D.letters || []).find(x => nameKey(x.donor_display_name) === k) || null;
 };
 
-const SHEETS = () => [
-  { key:"donations", title:"Donations",
-    cols:["First Name","Last Name","Organization","Email","Donation Date","Donation Amount","Campaign","Gift Type","Thank You Note Sent?","Date Thank You Letter Sent to Debi"],
-    rows:(D.staging||[]).map(d => {
-      const org = (d.donor_organization || "").trim();
-      // Split a name into first and last only when it is a person's. A gift
-      // recorded against the organisation itself has no surname to find, and
-      // splitting invented one — "The Smith Family Foundation" came out as
-      // "The Smith Family" / "Foundation".
-      const person = org && nameKey(org) === nameKey(d.donor_name) ? "" : (d.donor_name || "").trim();
-      const p = person ? person.split(/\s+/) : [];
-      const l = letterFor(d.donor_name);
-      return [p.length > 1 ? p.slice(0,-1).join(" ") : person, p.length > 1 ? p.at(-1) : "", org,
-        d.donor_email||"", (d.donation_date||"").slice(0,10), d.amount ?? "", d.category||"", d.gift_type||"",
-        l ? (l.status==="unsent"?"No":"Yes") : "No", l?.sent_to_debi_at ? l.sent_to_debi_at.slice(0,10) : ""]; }) },
-  { key:"sponsorships", title:"Sponsorships",
-    cols:["First Name","Last Name","Organization","Address","Email","Phone Number","Sponsorship Date","Sponsorship Amount","Level","Campaign","Group","Contacted By","Thank You Note Sent?","Date Thank You Letter Sent to Debi"],
-    rows:(D.sponsors||[]).map(s=>[s.first_name||"",s.last_name||"",s.organization||"",s.address||"",s.email||"",s.phone||"",
-      s.sponsorship_date||"",s.amount??"",s.level||"",s.campaign||"",s.group_name||"",s.contacted_by||"",
-      s.thank_you_sent?"Yes":"No",""]) },
-  { key:"rsvps", title:"Gala RSVPs",
-    cols:["Title","First Name","Last Name","Address","Email","Phone Number","VIP?","Guest?","Number of Tickets","Amount","Names of Guests"],
-    rows:(D.rsvps||[]).map(r=>[r.title||"",r.first_name||"",r.last_name||"",r.address||"",r.email||"",r.phone||"",
-      r.is_vip?"Yes":"No",r.is_guest?"Yes":"No",r.num_tickets??"",r.amount??"",r.guest_names||""]) },
-  { key:"tuition", title:"Tuition Payments",
-    cols:["First Name","Last Name","Participant","Payment Date","Amount","Check Number","Notes"],
-    rows:(D.tuition||[]).map(t=>[t.first_name||"",t.last_name||"",t.participant||"",t.payment_date||"",t.amount??"",t.check_number||"",t.notes||""]) },
-  { key:"auction", title:"Auction Item Donations",
-    cols:["Donor Business","Contact Name","Email","Item Description","Market Value","Event"],
-    rows:(D.auction||[]).map(a=>[a.donor_business||"",a.contact_name||"",a.email||"",a.item_description||"",a.market_value??"",a.event_name||""]) },
-  { key:"outreach", title:"Sponsor Outreach",
-    cols:["Name","Organization","Email","Type","Attempted","Outcome","Notes"],
-    rows:(D.outreach||[]).map(o=>[o.donor_name||"",o.donor_organization||"",o.donor_email||"",o.attempt_type||"",
-      (o.attempted_at||"").slice(0,10),o.outcome||"",o.notes||""]) },
-];
-
-function renderRecords() {
-  $("panel-records").innerHTML = SHEETS().map(s => `
-    <div class="sec"><h2>${s.title}</h2>
-      <span class="pill pill-grey">${s.rows.length}</span>
-      <div class="spacer"></div>
-      <button class="btn btn-quiet btn-sm" data-csv="${s.key}">Download CSV</button></div>
-    ${s.rows.length ? `<div class="tablewrap"><table><thead><tr>${s.cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr></thead>
-      <tbody>${s.rows.slice(0,200).map(r=>`<tr>${r.map((c,i)=>`<td class="${typeof c==="number"?"num":""}">${esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
-      ${s.rows.length>200?`<div class="meta">Showing the first 200. The CSV has all ${s.rows.length}.</div>`:""}`
-    : `<div class="empty"><p>Nothing recorded yet.</p></div>`}`).join("");
+// One CSV builder for every download in the app.
+function toCSV(cols, rows) {
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  return [cols.map(q).join(","), ...rows.map(r => r.map(q).join(","))].join("\r\n");
+}
+function saveCSV(name, cols, rows) {
+  const blob = new Blob(["\ufeff" + toCSV(cols, rows)], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name}-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
-function downloadCSV(key) {
-  const s = SHEETS().find(x => x.key === key); if (!s) return;
-  const q = v => { const t = String(v ?? ""); return /[",\n]/.test(t) ? `"${t.replace(/"/g,'""')}"` : t; };
-  const csv = [s.cols.map(q).join(","), ...s.rows.map(r => r.map(q).join(","))].join("\r\n");
-  const url = URL.createObjectURL(new Blob(["\uFEFF"+csv], { type:"text/csv;charset=utf-8" }));
-  const a = Object.assign(document.createElement("a"), {
-    href:url, download:`SPARC ${s.title} ${new Date().toISOString().slice(0,10)}.csv` });
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-}
+// ------------------------------------------------------------- Gala 2026
+// Every gala list in one place, each one downloadable. The figures come from
+// the dashboard payload, which reads the real tables — not from a spreadsheet
+// kept by hand.
+//
+// GALA_SUB is which list is showing. It is module state rather than a URL
+// fragment because the whole app is one page with no router.
+let GALA_SUB = "sponsors";
 
+const GALA_LISTS = () => {
+  const sponsors = (D.sponsors || []).slice()
+    .sort((a,b) => new Date(b.sponsorship_date||0) - new Date(a.sponsorship_date||0));
+  const rsvps = (D.rsvps || []).slice();
+  const auction = (D.auction || []).slice();
+  return {
+    sponsors: {
+      title: "Sponsors", rows: sponsors,
+      cols: ["Organisation","First name","Last name","Level","Amount","Date","Campaign","Contacted by","Thank you"],
+      cells: s => [s.organization||"", s.first_name||"", s.last_name||"", s.level||"",
+                   s.amount ?? "", (s.sponsorship_date||"").slice(0,10), s.campaign||"",
+                   s.contacted_by||"", s.thank_you_sent ? "Sent" : "Not sent"],
+      total: sponsors.reduce((n,s) => n + Number(s.amount || 0), 0),
+    },
+    rsvps: {
+      title: "RSVPs", rows: rsvps,
+      cols: ["Title","First name","Last name","Email","Tickets","Amount","VIP","Guests"],
+      cells: r => [r.title||"", r.first_name||"", r.last_name||"", r.email||"",
+                   r.num_tickets ?? "", r.amount ?? "", r.is_vip ? "Yes" : "", r.guest_names||""],
+      total: rsvps.reduce((n,r) => n + Number(r.amount || 0), 0),
+    },
+    auction: {
+      title: "Auction items", rows: auction,
+      cols: ["Donor","Contact","Email","Item","Market value","Event"],
+      cells: a => [a.donor_business||"", a.contact_name||"", a.email||"",
+                   a.item_description||"", a.market_value ?? "", a.event_name||""],
+      total: auction.reduce((n,a) => n + Number(a.market_value || 0), 0),
+    },
+  };
+};
 
-// ------------------------------------------------------------------ Today
-// What Debi has asked for, oldest ask first. Her numbered lists arrive as one
-// row per number and keep her numbering, because she expects each answered
-// separately.
+function renderGala() {
+  const lists = GALA_LISTS();
+  const tickets = (D.rsvps || []).reduce((n,r) => n + Number(r.num_tickets || 0), 0);
+  const committed = lists.sponsors.total;
+  $("cG").textContent = lists.sponsors.rows.length;
 
-const GMAIL_THREAD = id => "https://mail.google.com/mail/u/0/#all/" + encodeURIComponent(id);
+  const cur = lists[GALA_SUB] || lists.sponsors;
+  const blocked = (D.sponsors || []).filter(s => s.amount == null).length;
 
-async function loadToday() {
-  try {
-    T = await tsk("list"); renderToday();
-    // Asks builds its "not drafted yet" list from T, so keep it in step when a
-    // scan or a tick changes the task list underneath it.
-    if (A) renderAsks();
-    updateLede();
-  }
-  catch (e) {
-    if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
-    $("cT").textContent = "—";
-    $("panel-today").innerHTML = `<div class="empty">
-      <b>The task list couldn't load.</b>
-      <p>Nothing has been lost.${e.message ? `<br><span class="meta">${esc(e.message)}</span>` : ""}</p>
-      <div class="controls controls-center"><button class="btn btn-sm" data-today-retry="1">Try again</button></div>
-    </div>`;
-  }
-}
+  const table = cur.rows.length
+    ? `<div class="tablewrap"><table>
+        <thead><tr>${cur.cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+        <tbody>${cur.rows.map(r => `<tr>${cur.cells(r).map((v,n) =>
+          `<td${n >= 4 && !isNaN(Number(v)) && v !== "" ? ' class="num"' : ""}>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody>
+       </table></div>`
+    : `<div class="empty"><b>Nothing on this list yet.</b></div>`;
 
-function taskRow(t) {
-  const done = t.status === "done";
-  const flags = [];
-  // Asked more than once. Debi re-asks when something has gone quiet, so this
-  // is the strongest signal on the row.
-  if ((t.ask_count || 1) > 1) flags.push(`<span class="flag flag-ask">Asked ×${t.ask_count}</span>`);
-  if (!done && t.days_open > 7) flags.push(`<span class="flag flag-old">${t.days_open} days</span>`);
-  if (t.due_at) flags.push(`<span class="flag flag-due">Due ${day(t.due_at)}</span>`);
-
-  const who = t.requested_by === "debi@sparcsolutions.org" ? "Debi" : esc(t.requested_by);
-  const idx = t.list_index ? `<span class="idx">#${esc(t.list_index)}</span>` : "";
-
-  return `<div class="task${done ? " done" : ""}" data-task="${t.id}">
-    <input class="task-check" type="checkbox" ${done ? "checked" : ""}
-           data-check="${t.id}" aria-label="Mark done: ${esc(t.title)}">
-    <div>
-      <div class="task-title">${esc(t.title)}</div>
-      <div class="task-meta">
-        ${idx}<span>${who}</span><span>${day(t.requested_at)}</span>
-        ${flags.join("")}
-        ${t.source_quote ? `<button class="quote-toggle" data-quote="${t.id}">Her words</button>` : ""}
-        ${t.source_thread_id ? `<a href="${esc(GMAIL_THREAD(t.source_thread_id))}" target="_blank" rel="noopener">Open thread</a>` : ""}
-      </div>
-      ${t.detail ? `<div class="task-detail">${esc(t.detail)}</div>` : ""}
-      ${t.source_quote ? `<div class="task-quote hidden" id="q${t.id}">“${esc(t.source_quote)}”</div>` : ""}
-    </div>
-    <div class="task-side">
-      <button class="task-x" data-del="${t.id}"
-              title="Delete — will not appear in Completed" aria-label="Delete task">×</button>
-    </div>
-  </div>`;
-}
-
-function renderToday() {
-  const c = T.counts;
-  $("cT").textContent = c.open;
-
-  const when = T.last_scan_at
-    ? `Last scan ${day(T.last_scan_at)}, ${new Date(T.last_scan_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`
-    : "No scan has run yet";
-
-  const rows = T.tasks.length
-    ? T.tasks.map(taskRow).join("")
-    : `<div class="empty"><b>Nothing is waiting on you.</b>
-         <p>No open asks from Debi. The next scan runs at 8am, noon and 5pm.</p></div>`;
-
-  $("panel-today").innerHTML = `
-    <div class="scanbar">
-      <h2>${esc(day(T.today))}</h2>
-      <span class="meta">${esc(when)}${T.last_scan_error ? " · last scan reported a problem" : ""}</span>
-    </div>
-    ${T.last_scan_error ? `<div class="note note-bad">Last scan: ${esc(String(T.last_scan_error).slice(0, 300))}</div>` : ""}
+  $("panel-gala").innerHTML = `
     <div class="tiles">
-      <div class="tile"><b>${c.open}</b><span>Open</span></div>
-      <div class="tile tile-green"><b>${c.done_today}</b><span>Done today</span></div>
-      <div class="tile tile-red"><b>${c.over_7_days}</b><span>Over 7 days</span></div>
-      <div class="tile tile-amber"><b>${c.asked_twice}</b><span>Asked twice</span></div>
+      <div class="tile tile-green"><b>${money(committed)}</b><span>Committed</span></div>
+      <div class="tile"><b>${lists.sponsors.rows.length}</b><span>Sponsors</span></div>
+      <div class="tile"><b>${lists.rsvps.rows.length}</b><span>RSVPs</span></div>
+      <div class="tile"><b>${tickets}</b><span>Tickets</span></div>
+      <div class="tile ${blocked ? "tile-red" : ""}"><b>${blocked}</b><span>Missing an amount</span></div>
     </div>
+    <div class="subtabs">
+      ${Object.entries(lists).map(([k,v]) =>
+        `<button class="subtab" data-gala="${k}" aria-selected="${String(k === GALA_SUB)}">${esc(v.title)} \u00b7 ${v.rows.length}</button>`).join("")}
+    </div>
+    ${table}
     <div class="controls">
-      <button class="btn btn-quiet btn-sm" data-tcsv="day">Download today</button>
-      <button class="btn btn-quiet btn-sm" data-tcsv="week">Download week</button>
-      <span class="spacer"></span>
-      <button class="btn btn-sm" data-scan="1">Scan now</button>
-    </div>
-    <div class="result note-controls"></div>
-    ${rows}`;
+      <button class="btn btn-quiet btn-sm" data-gala-csv="${GALA_SUB}">Download ${esc(cur.title.toLowerCase())}</button>
+      <span class="meta">Read from the live tables. Bloomerang's own figure for the gala is on the Bloomerang tab.</span>
+    </div>`;
 }
 
 // -------------------------------------------------------------- Completed
@@ -690,6 +600,99 @@ function taskCSV(rows, name) {
 }
 
 
+// ---------------------------------------------------------------- Letters
+// The thank-you letter engine has existed since 14 August and has never had a
+// screen. `letters/list` returns the active formatting rules, the drafts, and
+// the gifts that are owed one.
+//
+// Approving does four things in the backend's own order: writes the .docx to
+// Drive, drafts the email to Debi with it attached, and (once the note and
+// completion steps land) records both. Nothing is ever emailed to a donor.
+async function loadLetters() {
+  try { L = await call(LTR, "list"); renderLetters(); updateLede(); }
+  catch (e) {
+    if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
+    $("panel-letters").innerHTML = `<div class="empty"><b>Letters couldn't load.</b>
+      <p><span class="meta">${esc(e.message)}</span></p>
+      <div class="controls controls-center"><button class="btn btn-sm" data-letters-retry="1">Try again</button></div></div>`;
+  }
+}
+
+const LETTER_STATE = { draft:"Drafted", in_drive:"Saved to Drive", drafted_to_debi:"Drafted to Debi", sent:"Sent", failed:"Failed" };
+
+function owedRow(g) {
+  const who = g.donor_display_name || g.donor_name || g.donor_organization || "(unnamed)";
+  return `<div class="task" data-owed="${esc(g.donation_id ?? g.id ?? "")}">
+    <span></span>
+    <div>
+      <div class="task-title">${esc(who)}${g.amount != null ? ` \u2014 ${money(g.amount)}` : ""}</div>
+      <div class="task-meta">
+        <span>${day(g.donation_date || g.gift_date)}</span>
+        ${g.category ? `<span class="flag flag-due">${esc(g.category)}</span>` : ""}
+        ${g.amount == null ? `<span class="flag flag-warn">no amount</span>` : ""}
+        <button class="quote-toggle" data-letter-gen='${esc(JSON.stringify({
+          donor_display_name: who, amount: g.amount, gift_date: (g.donation_date || g.gift_date || "").slice(0,10),
+          gift_type: g.gift_type || undefined, donation_id: g.donation_id ?? undefined,
+        }))}'>Write the letter</button>
+      </div>
+      <div class="result"></div>
+    </div><span></span>
+  </div>`;
+}
+
+function letterCard(d) {
+  const state = d.status || "draft";
+  return `<div class="card-plain${state === "sent" ? " staged" : ""}" data-letter="${d.id}">
+    <div class="task-title">${esc(d.donor_display_name || "(unnamed)")}${d.amount != null ? ` \u2014 ${money(d.amount)}` : ""}</div>
+    <div class="task-meta">
+      <span>${day(d.gift_date)}</span>
+      <span class="flag ${state === "sent" ? "flag-ok" : state === "failed" ? "flag-warn" : "flag-due"}">${esc(LETTER_STATE[state] || state)}</span>
+      ${d.gift_method === "check" ? `<span class="flag flag-blue">Check</span>` : ""}
+      ${d.tribute ? `<span class="flag flag-ask">In memory of ${esc(d.tribute)}</span>` : ""}
+      ${d.drive_docx_url ? `<a href="${esc(d.drive_docx_url)}" target="_blank" rel="noopener">Open in Drive</a>` : ""}
+      ${d.gmail_draft_id ? `<a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener">Gmail draft</a>` : ""}
+    </div>
+    ${d.error ? `<div class="note note-bad">${esc(String(d.error).slice(0,300))}</div>` : ""}
+    ${d.body_html ? `<div class="letterpage">${d.body_html}</div>` : ""}
+    <div class="controls">
+      ${state === "sent"
+        ? `<span class="meta">Filed in the Sent folder.</span>`
+        : `<button class="btn btn-go btn-sm" data-letter-sent="${d.id}">Mark sent to Debi</button>`}
+      <div class="spacer"></div>
+      <span class="meta">Never emailed to the donor.</span>
+    </div>
+    <div class="result"></div>
+  </div>`;
+}
+
+function renderLetters() {
+  const rules = L.rules || [], drafts = L.drafts || [], owed = L.needs_letter || [];
+  $("cL").textContent = owed.length;
+  const sent = drafts.filter(d => d.status === "sent").length;
+
+  $("panel-letters").innerHTML = `
+    <div class="tiles">
+      <div class="tile tile-amber"><b>${owed.length}</b><span>Owed a letter</span></div>
+      <div class="tile"><b>${drafts.length}</b><span>Drafted</span></div>
+      <div class="tile tile-green"><b>${sent}</b><span>Sent to Debi</span></div>
+      <div class="tile"><b>${rules.length}</b><span>Rules applied</span></div>
+    </div>
+    <div class="result note-controls" id="lettersResult"></div>
+
+    ${drafts.length ? `<div class="sec"><h2>Drafted</h2><span class="pill pill-blue">${drafts.length}</span></div>`
+      + drafts.map(letterCard).join("") : ""}
+
+    <div class="sec"><h2>Owed a thank-you letter</h2><span class="pill pill-amber">${owed.length}</span></div>
+    ${owed.length ? owed.map(owedRow).join("")
+      : `<div class="empty"><b>Everyone has been thanked.</b></div>`}
+
+    ${rules.length ? `<div class="sec"><h2>Debi's formatting rules</h2></div>
+      <div class="tablewrap"><table><thead><tr><th class="num">#</th><th>Rule</th><th>Applies to</th></tr></thead><tbody>
+      ${rules.map(r => `<tr><td class="num">${esc(r.id)}</td><td>${esc(r.rule)}</td><td>${esc(r.applies_to || "every letter")}</td></tr>`).join("")}
+      </tbody></table></div>
+      <p class="meta">Held as data, so changing her mind is an edit to a row rather than a redeploy.</p>` : ""}`;
+}
+
 // ------------------------------------------------------------------- Asks
 // One answer draft per ask from Debi. The flags are the point of this panel:
 // the generator grades its own output and says what it could not source, and
@@ -711,9 +714,9 @@ const FLAG_HELP = {
 
 async function loadAsks() {
   // The "not drafted yet" list is built from the Today task list, so make sure
-  // it is loaded first. loadToday() swallows its own failure and leaves T null,
+  // it is loaded first. loadTasks() swallows its own failure and leaves T null,
   // which renderAsks() falls back from.
-  try { if (!T) await loadToday(); } catch {}
+  try { if (!T) await loadTasks(); } catch {}
   try { A = await ask("list"); renderAsks(); updateLede(); }
   catch (e) {
     if (e.status === 401) return backToSignin("Your session has ended. Please sign in again.");
@@ -811,8 +814,7 @@ function renderAsks() {
           ${t.source === "manual" || !t.source_thread_id
             ? `<span class="meta">added by hand — no thread to answer from</span>`
             : `<button class="quote-toggle" data-answer-regen="${t.id}">Draft an answer</button>`}
-          <button class="quote-toggle" data-ask-blm="${t.id}">Add to Bloomerang</button>
-          <button class="quote-toggle" data-ask-dismiss="${t.id}">Not answering this</button>
+          <button class="quote-toggle" data-ask-del="${t.id}">Delete</button>
         </div>
         <div class="result"></div>
       </div><span></span>
@@ -904,7 +906,8 @@ function followupCard(r) {
 }
 
 function renderFollowups() {
-  const rows = F.rows || [];
+  const rows = (F.rows || []).slice()
+    .sort((a,b) => new Date(b.task?.requested_at || b.created_at || 0) - new Date(a.task?.requested_at || a.created_at || 0));
   $("cF").textContent = rows.filter(r => r.status === "draft").length;
 
   // Only tasks whose wording actually asks Erica to follow up with a named person
@@ -1047,13 +1050,12 @@ function renderDiff(id, d) {
 
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-save],[data-dismiss],[data-restore],[data-csv],[data-retry],[data-ask-dismiss],[data-ask-restore],[data-ask-blm],[data-blm-new],[data-note-done],[data-note-open],[data-note-del],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-note],[data-check],[data-del],[data-quote],[data-scan],[data-tcsv],[data-crange],[data-today-retry],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr]");
-  if (!t && e.target.id !== "noteAdd") return;
-  const btn = t || $("noteAdd");
+  const t = e.target.closest("[data-retry],[data-ask-del],[data-ask-restore],[data-blm-new],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-tcsv],[data-crange],[data-gala],[data-gala-csv],[data-letters-retry],[data-letter-gen],[data-letter-sent],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr]");
+  if (!t) return;
+  const btn = t;
 
   // ---- Today and Completed. Handled before the donor-ops branches because
   // these read from their own endpoint and their own state.
-  if (btn.dataset.todayRetry) return loadToday();
   if (btn.dataset.quote) { $("q" + btn.dataset.quote)?.classList.toggle("hidden"); return; }
   if (btn.dataset.crange) {
     CFROM = $("cFrom").value || CFROM; CTO = $("cTo").value || CTO;
@@ -1067,27 +1069,6 @@ document.addEventListener("click", async e => {
       if (!r.rows.length) { alert("Nothing completed in that range yet."); return; }
       taskCSV(r.rows, `SPARC tasks ${scope === "week" ? r.from + " to " + r.to : r.to}.csv`);
     } catch (err) { alert(err.message); }
-    return;
-  }
-  if (btn.dataset.check) {
-    const id = btn.dataset.check;
-    const row = btn.closest(".task");
-    // Toggle the row immediately; the box is already visually checked and
-    // waiting for a round trip makes it feel broken.
-    row?.classList.toggle("done", btn.checked);
-    try { await tsk("check", { id: Number(id), checked: btn.checked }); await loadToday(); }
-    catch (err) { row?.classList.toggle("done", !btn.checked); btn.checked = !btn.checked; alert(err.message); }
-    return;
-  }
-  if (btn.dataset.del) {
-    const row = btn.closest(".task");
-    if (!confirm("Delete this task? It will not appear in Completed.")) return;
-    btn.disabled = true;
-    try {
-      await tsk("delete", { id: Number(btn.dataset.del) });
-      row?.classList.add("going");
-      setTimeout(loadToday, 220);
-    } catch (err) { btn.disabled = false; alert(err.message); }
     return;
   }
   // ---- Needs editing
@@ -1139,7 +1120,21 @@ document.addEventListener("click", async e => {
   // ---- Asks
   if (btn.dataset.asksRetry) return loadAsks();
   // Set an ask aside, or put it back. Neither touches the Today list.
-  for (const [key, action] of [["askDismiss", "dismiss_task"], ["askRestore", "restore_task"]]) {
+  // "Delete" removes the task outright rather than parking it. The old
+  // "Not answering this" only set ask_state, which left the item open on the
+  // task list — hidden here but not gone, which is not what delete means.
+  if (btn.dataset.askDel) {
+    const out = btn.closest(".task")?.querySelector(".result");
+    if (!confirm("Delete this ask? It will not appear in Completed.")) return;
+    btn.disabled = true;
+    try { await tsk("delete", { id: Number(btn.dataset.askDel) }); await loadTasks(); await loadAsks(); }
+    catch (err) {
+      if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; else alert(err.message);
+      btn.disabled = false;
+    }
+    return;
+  }
+  for (const [key, action] of [["askRestore", "restore_task"]]) {
     if (btn.dataset[key]) {
       const out = btn.closest(".task")?.querySelector(".result");
       btn.disabled = true;
@@ -1278,25 +1273,9 @@ document.addEventListener("click", async e => {
     }
   }
 
-  if (btn.dataset.scan) {
-    btn.disabled = true; const label = btn.textContent; btn.textContent = "Scanning…";
-    const out = $("panel-today").querySelector(".result");
-    try {
-      const r = await tsk("scan", { max_extractions: 12 });
-      if (out) out.innerHTML = `<div class="note ${r.error ? "note-bad" : "note-ok"}">${
-        esc(r.error ? "Scan failed: " + r.error
-          : `${r.messages_seen} messages read, ${r.tasks_created} new, ${r.duplicates_matched} already on the list.`
-            + (r.complete ? "" : " More to read — run it again."))}</div>`;
-      await loadToday();
-    } catch (err) { if (out) out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`; }
-    btn.disabled = false; btn.textContent = label;
-    return;
-  }
-
   const card = btn.closest(".card") || btn.closest(".notebox");
   const out = card?.querySelector(".result");
   const say = (c, m) => { if (out) out.innerHTML = `<div class="note ${c}">${esc(m)}</div>`; };
-  if (btn.dataset.csv) return downloadCSV(btn.dataset.csv);
   if (btn.dataset.retry) return refresh();
   // Create the constituent an ask asked for, from whatever is in the boxes at
   // the moment the button is pressed — not from the extraction, so a correction
@@ -1325,65 +1304,19 @@ document.addEventListener("click", async e => {
     } catch (err) { say("note-bad", err.message); btn.disabled = false; btn.textContent = label; }
     return;
   }
-  if (btn.dataset.restore) {
-    btn.disabled = true;
-    try { await api("restore_dismissed", JSON.parse(btn.dataset.restore)); await refresh(); }
-    catch (err) { btn.disabled = false; if (out) say("note-bad", err.message); else alert(err.message); }
-    return;
-  }
-
   btn.disabled = true;
   try {
-    if (btn.dataset.save) {
-      const [table, id] = btn.dataset.save.split(":");
-      const fields = {};
-      card.querySelectorAll("[data-field]").forEach(el => {
-        const name = el.dataset.field;
-        if (name.startsWith("_")) return;           // UI-only, never written back
-        // A field that arrived with a value and is now empty was cleared on
-        // purpose; one that was empty all along was simply not filled in. Only
-        // the first is sent, and the backend reads "" as null — so a wrong
-        // value can finally be removed rather than only overwritten.
-        const had = el.tagName === "SELECT"
-          ? (el.querySelector("option[selected]")?.value ?? "")
-          : el.defaultValue;
-        if (el.value !== "" || had !== "") fields[name] = el.value;
-      });
-      if (!Object.keys(fields).length) { say("note-bad","Fill in a value first."); btn.disabled = false; return; }
-      await api("update", { table, id, fields });
-      say("note-ok","Saved."); card.classList.add("settled"); setTimeout(refresh, 650);
-    } else if (btn.dataset.dismiss) {
-      const payload = JSON.parse(btn.dataset.dismiss);
-      await api("dismiss", payload);
-      // Dim the card and leave it in place rather than refreshing it away, so
-      // a mis-click can be taken back. It clears on the next refresh like any
-      // other card that has been dealt with.
-      card.classList.add("settled");
-      if (out) out.innerHTML = `<div class="note note-ok">Dismissed. `
-        + `<button class="link" data-restore='${esc(JSON.stringify(payload))}'>Undo</button></div>`;
-      // Drop the flag from the payload held in memory and redraw only the
-      // counts, so the tab pill and the lede stay honest without re-rendering
-      // the panel out from under the undo. Undo calls refresh() and reloads
-      // the real numbers.
-      D.flags = (D.flags || []).filter(x =>
-        !(x.kind === payload.flag_kind && x.table === payload.table && x.row_id === payload.row_id));
-      D.counts.flags = D.flags.length;
-      $("cQ").textContent = D.counts.flags;
-      updateLede();
-    } else if (e.target.id === "noteAdd") {
-      await api("note", { body: $("noteBody").value, tag: $("noteTag").value });
-      $("noteBody").value = ""; await refresh();
-    } else if (btn.dataset.note) {
-      const n = JSON.parse(btn.dataset.note);
-      await api("note", { body: n.body, tag: "follow_up", subject_label: n.label });
-      say("note-ok","Note added."); setTimeout(refresh, 500);
-    } else if (btn.dataset.noteDone)  { await api("note", { id: btn.dataset.noteDone, resolved: true }); await refresh(); }
-      else if (btn.dataset.noteOpen)  { await api("note", { id: btn.dataset.noteOpen, resolved: false }); await refresh(); }
-      else if (btn.dataset.noteDel)   { await api("note_delete", { id: btn.dataset.noteDel }); await refresh(); }
-      else if (btn.dataset.approve) {
+    if (btn.dataset.approve) {
       const acct = card.querySelector('[data-field="_accountNumber"]')?.value;
       const noteEl = card.querySelector("[data-blm-note]");
       const dateEl = card.querySelector("[data-blm-date]");
+      // Whatever is in the gift boxes at the moment the button is pressed is
+      // what gets recorded, not what the extractor first guessed.
+      const gift = {};
+      card.querySelectorAll("[data-gift]").forEach(el => {
+        const v = el.value.trim();
+        if (v !== "") gift[el.dataset.gift] = el.type === "number" ? Number(v) : v;
+      });
       // A note with no body writes a blank record onto a donor, and the only
       // way back is a delete. Refuse it here rather than at the API.
       if (noteEl && !noteEl.value.trim()) {
@@ -1396,6 +1329,22 @@ document.addEventListener("click", async e => {
       if (acct) overrides._accountNumber = Number(acct);
       if (noteEl) overrides.Note = noteEl.value.trim();
       if (dateEl?.value) overrides.Date = dateEl.value;
+      // The gift fields are NOT sent as payload keys. bloomerang.pushOne strips
+      // only _accountNumber and spreads the rest straight into the API call, so
+      // any extra key would be posted to Bloomerang as a field on the note.
+      // Instead her edits are folded into the note text, which is the one thing
+      // this record type can actually carry.
+      if (Object.keys(gift).length && noteEl) {
+        const line = [
+          gift.donor_organization || gift.donor_name,
+          gift.amount != null ? money(gift.amount) : null,
+          gift.gift_date ? "given " + gift.gift_date : null,
+          gift.sponsor_level ? gift.sponsor_level + " level" : null,
+          gift.designation ? "for " + gift.designation : null,
+          gift.check_number ? "check " + gift.check_number : null,
+        ].filter(Boolean).join(" \u00b7 ");
+        if (line && !overrides.Note.includes(line)) overrides.Note = (overrides.Note + "\n\n" + line).trim();
+      }
       await blm("approve", { id: btn.dataset.approve,
         ...(Object.keys(overrides).length ? { payload_overrides: overrides } : {}) });
       say("note-ok","Sent to Bloomerang."); card.classList.add("settled"); setTimeout(refresh, 800);

@@ -228,10 +228,12 @@ under `not_applied` with that as the reason. The email instructions stay
 `needs_human` until a person ticks them. Do not add a code path that reports a
 change as applied when it has not been.
 
-`revise` is deployed and, as at 27 Aug 2026, **not reachable from the
-dashboard** — no button calls it. There is also no action that turns
-`revised_text` back into a `.docx` and drafts it to Debi, which is the last step
-of the workflow Erica asked for on 27 Aug.
+`revise` is wired to the "Make her edits" button in the Needs editing panel as
+at 27 Aug 2026. The panel shows what was applied, what was not and why, and the
+text open for editing; **`letters.return_document`** then turns the edited text
+into a `.docx` and drafts it to Debi. Erica's edits are persisted only when she
+returns the document — there is no separate save action, because the flow she
+asked for is edit-then-send in one pass.
 
 ## `letters` actions
 
@@ -248,6 +250,7 @@ and keeps Debi's formatting.
 | `list` | `{ rules, drafts, needs_letter, batch }`. `rules` is `letter_rules` where active. `needs_letter` is `donation_ack_status` where not thanked. `batch` is `{ max, awaiting }` — how many letters sit in Drive with no draft to Debi yet. |
 | `generate` | Writes one letter. `donor_display_name` and `amount` are required. `draft_email: false` stops after Drive so `draft_batch` can pick it up. Returns `address_source`, `address_how` and `matched_account` so a missing address is visible to the caller. |
 | `draft_batch` | `{ size?, ids? }` → up to **`BATCH_MAX` = 3** letters already in Drive, gathered into ONE Gmail draft to Debi. `422` when nothing is waiting. |
+| `return_document` | `{ text, title?, heading?, original_filename?, applied?, not_applied?, doc_revision_id?, allow_placeholders? }`. Turns edited text into a `.docx` and drafts it to Debi with `applied` / `not_applied` listed in the body. `422` when a `[placeholder]` is still in the text, unless `allow_placeholders`. With `doc_revision_id` it stamps the Needs-editing row: `revised_drive_id`, `status = 'returned'`, `returned_at`, and the edited text into `revision.edited_text`. |
 | `mark_sent` | `{ id }`. Moves the `.docx` from the Unsent folder to the Sent folder and sets `status = 'sent'`. **It emails nothing.** The response says so explicitly, because the old button label read as if it did. |
 | `delete` | `{ id }`. Removes a draft: the row is deleted, the Drive `.docx` and Doc are trashed (Drive keeps them 30 days) and the Gmail draft is deleted. A letter with `status = 'sent'` is refused with `409` — that is a record, not a draft. The row goes even if Google is unreachable, so a deleted draft cannot reappear on the next load. |
 
@@ -284,6 +287,28 @@ When no address is found the letter is still written, with no address block, and
 the response reports `address_source: "none"` plus an `address_how` saying why.
 The dashboard shows that as a warning rather than swallowing it. Do not add a
 fallback that guesses an address.
+
+### Why `return_document` lives here
+
+It belongs to the Needs-editing workflow, not to thank-you letters, and it is
+here anyway for two reasons:
+
+1. This is the only function with a working HTML → Google Doc → `.docx`
+   pipeline, plus the Gmail multi-attachment draft path. Duplicating both into
+   `docs` would mean two copies of the machinery that produces donor documents.
+2. `docs` deliberately **does not write files** — that is stated at the top of
+   it and is worth keeping true. `docs.revise` produces text; turning text into
+   a file is a different job.
+
+It writes into `DOC_FOLDER`, the same Drive folder `docs` archives Debi's
+incoming attachments to, **not** the thank-you Unsent folder: a revised report
+is not a letter awaiting her signature.
+
+The `.docx` is rebuilt **from text**, so the original formatting, images, tables
+and layout are not carried over. `docs.revise` only ever produces text, so there
+is nothing else to carry. The draft body to Debi says this outright, and the
+dashboard repeats it above the editor, so the attachment is never mistaken for
+an in-place edit of her own file.
 
 ### The signature gap
 

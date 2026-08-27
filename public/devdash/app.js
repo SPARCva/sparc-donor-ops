@@ -11,6 +11,10 @@ let TOKEN = null, USER = null, D = null, TAB = "bloomerang";
 // its "not drafted yet" list from it, and Follow ups its candidates. L is the
 // letters payload.
 let T = null, C = null, CFROM = null, CTO = null, A = null, F = null, DOCS = null, L = null;
+// The full revision for a document, keyed by its id. `docs.list` sends only the
+// applied/not-applied COUNTS to keep a six-document listing small, so the arrays
+// and the text are held here from the `revise` call that returned them.
+const REV = {};
 
 // Session lives in sessionStorage, never localStorage: this is donor data on a
 // shared office machine, so the session must die with the tab. We keep the
@@ -1095,10 +1099,16 @@ function docCard(d) {
       <span class="flag ${d.status === "returned" ? "flag-ok" : ""}">${esc(d.status)}</span>
       ${d.attachment?.drive_url ? `<a href="${esc(d.attachment.drive_url)}" target="_blank" rel="noopener">Open the file</a>` : ""}
     </div>
-    ${d.tracked_change_count
-      ? `<div class="controls"><button class="btn btn-quiet btn-sm" data-doc-diff="${d.id}">Show her changes side by side</button></div>`
-      : ""}
+    ${d.file_kind === "docx" ? `<div class="controls">
+      ${d.tracked_change_count
+        ? `<button class="btn btn-quiet btn-sm" data-doc-diff="${d.id}">Show her changes side by side</button>` : ""}
+      <button class="btn btn-sm" data-doc-revise="${d.id}">${d.revision ? "Show the edits" : "Make her edits"}</button>
+      ${d.revision ? `<span class="meta">${d.revision.applied} applied,
+        ${d.revision.not_applied} not.</span>` : ""}
+    </div>` : `<div class="controls"><span class="meta">A ${esc(d.file_kind)} has to be opened in its
+        own application. Her instructions from the email are listed below.</span></div>`}
     <div class="diffwrap hidden" id="dw${d.id}"></div>
+    <div class="revwrap hidden" id="rw${d.id}"></div>
     ${instrs.length ? `<h3 class="sec">What she asked for</h3>${instrs.map((i, n) => instructionRow(d, i, n)).join("")}` : ""}
     <div class="controls">
       <span class="spacer"></span>
@@ -1127,6 +1137,48 @@ function renderDocs() {
     ${(DOCS.rows || []).length ? DOCS.rows.map(docCard).join("")
       : `<div class="empty"><b>No documents waiting.</b>
          <p>Anything Debi sends back with a .docx or deck attached shows up here.</p></div>`}`;
+}
+
+// Debi's edits, applied, with what was NOT done and why, and the text open for
+// Erica to change before it goes back.
+//
+// The two halves are deliberately labelled differently. Her tracked changes are
+// read mechanically out of the .docx, so "applied" there is fact. Acting on her
+// margin comments and the instructions in her email is a judgement, and the
+// things it could not do — anything touching an image, a slide, a chart or the
+// layout — are listed rather than quietly skipped.
+function renderRevision(id, rev) {
+  const wrap = $("rw" + id);
+  const line = (a, cls) => `<div class="revrow ${cls}">
+      <b>${esc(a.what || "(no summary)")}</b>
+      ${a.where ? `<span class="meta"> in ${esc(a.where)}</span>` : ""}
+      ${a.why ? `<span class="why">Not done: ${esc(a.why)}</span>` : ""}
+      ${a.quote ? `<div class="task-quote">\u201c${esc(a.quote)}\u201d</div>` : ""}
+    </div>`;
+  const applied = rev.applied || [], notApplied = rev.not_applied || [];
+  const text = rev.edited_text ?? rev.revised_text ?? "";
+  const gap = /\[[^\]]{3,}\]/.test(text);
+
+  wrap.innerHTML = `
+    <h3 class="sec">What was changed (${applied.length})</h3>
+    ${applied.length ? applied.map(a => line(a, "revdone")).join("")
+      : `<div class="revrow"><span class="meta">Nothing was changed beyond her tracked changes.</span></div>`}
+
+    ${notApplied.length ? `<h3 class="sec">Not done, and why (${notApplied.length})</h3>
+      ${notApplied.map(a => line(a, "revopen")).join("")}` : ""}
+
+    <h3 class="sec">The document, yours to edit</h3>
+    ${gap ? `<div class="note note-warn">There is still a [placeholder] in here. Fill it in
+      before this goes back \u2014 sending is refused while one is left.</div>` : ""}
+    <textarea class="field revedit" id="rt${id}">${esc(text)}</textarea>
+    <p class="meta">Rebuilt from the text, so the original formatting, images and layout are
+      not carried over. The draft to Debi says so.</p>
+    <div class="controls">
+      <button class="btn btn-go btn-sm" data-doc-return="${id}">Draft it to Debi</button>
+      <span class="meta">Makes a .docx and a Gmail draft. Nothing is sent \u2014 you send it.</span>
+    </div>
+    <div class="result" id="rr${id}"></div>`;
+  wrap.classList.remove("hidden");
 }
 
 // Her version against the version with her changes applied. Deletions struck
@@ -1219,6 +1271,75 @@ document.addEventListener("click", async e => {
     catch (err) { alert(err.message); btn.disabled = false; }
     return;
   }
+  // Apply Debi's edits. `revise` is cached backend-side, so pressing this again
+  // shows the stored revision rather than spending a second model call on a
+  // whole document; the button says which it is doing.
+  if (btn.dataset.docRevise) {
+    const id = btn.dataset.docRevise;
+    const wrap = $("rw" + id);
+    if (!wrap.classList.contains("hidden")) { wrap.classList.add("hidden"); return; }
+    const row = (DOCS.rows || []).find(r => String(r.id) === id);
+    const out = btn.closest(".card-plain").querySelector(".result");
+    const label = btn.textContent; btn.disabled = true;
+    btn.textContent = row?.revision ? "Loading\u2026" : "Reading and editing\u2026";
+    try {
+      const r = await doc("revise", { id: Number(id) });
+      if (r.nothing_to_apply) {
+        out.innerHTML = `<div class="note note-warn">${esc(r.error)}</div>`;
+      } else {
+        REV[id] = r.revision || {};
+        // The reload has to come FIRST. renderDocs() replaces the panel
+        // wholesale, so a revision rendered before it is wiped a moment later.
+        if (!r.cached) await loadDocs();
+        renderRevision(id, REV[id]);
+      }
+    } catch (err) {
+      out.innerHTML = `<div class="note note-bad">${esc(err.message)}</div>`;
+    }
+    btn.disabled = false; btn.textContent = label;
+    return;
+  }
+
+  // The edited text, back to Debi as a .docx on a Gmail draft. Never sent.
+  if (btn.dataset.docReturn) {
+    const id = btn.dataset.docReturn;
+    const row = (DOCS.rows || []).find(r => String(r.id) === id);
+    const text = $("rt" + id)?.value ?? "";
+    const out = $("rr" + id);
+    const say = (c, h) => { if (out) out.innerHTML = `<div class="note ${c}">${h}</div>`; };
+    if (!text.trim()) return say("note-bad", "There is nothing to send.");
+    if (!confirm("Draft this back to Debi?\n\nIt makes a .docx and a Gmail draft. "
+      + "Nothing is sent — you read it and send it yourself.")) return;
+    btn.disabled = true;
+    const label = btn.textContent; btn.textContent = "Drafting\u2026";
+    try {
+      const r = await call(LTR, "return_document", {
+        doc_revision_id: Number(id),
+        title: (row?.filename || "Revised document").replace(/\.(docx|pptx|xlsx)$/i, ""),
+        original_filename: row?.filename || null,
+        heading: (row?.filename || "").replace(/\.(docx|pptx|xlsx)$/i, ""),
+        text,
+        // So the draft to Debi carries what was done and what was not.
+        applied: REV[id]?.applied ?? [],
+        not_applied: REV[id]?.not_applied ?? [],
+      });
+      // Reload first, then write the note into the panel-level result:
+      // renderDocs() replaces the panel and would wipe a note written before it.
+      await loadDocs();
+      const panel = $("docsResult");
+      if (panel) panel.innerHTML = `<div class="note note-ok">${esc(r.note || "Drafted to Debi.")}`
+        + (r.drive_url ? ` <a href="${esc(r.drive_url)}" target="_blank" rel="noopener">Open the .docx</a>.` : "")
+        + ` <a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener">Open Gmail drafts</a>.`
+        + `</div>`;
+    } catch (err) {
+      // A left-in placeholder is refused by the backend; surface it as guidance
+      // rather than a failure, because the fix is one edit away.
+      say(err.status === 422 ? "note-warn" : "note-bad", esc(err.message));
+      btn.disabled = false; btn.textContent = label;
+    }
+    return;
+  }
+
   if (btn.dataset.docMark) {
     const [id, status] = btn.dataset.docMark.split(":");
     if (status === "dismissed" && !confirm("Dismiss this document?")) return;

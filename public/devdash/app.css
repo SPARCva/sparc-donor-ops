@@ -76,6 +76,7 @@
   .note{font-size:12.5px;margin-top:9px;padding:8px 11px;border-radius:6px}
   .note-ok{background:var(--green-soft);color:var(--green)}
   .note-bad{background:var(--red-soft);color:var(--red)}
+  .note-warn{background:var(--amber-soft);color:var(--amber)}
   .spacer{flex:1}
 
   .empty{text-align:center;padding:52px 24px;border:1px dashed var(--rule);border-radius:11px;background:#fff}
@@ -166,6 +167,17 @@
   h3.sec{font-size:13px;margin:16px 0 6px;color:var(--ink-60);
          text-transform:uppercase;letter-spacing:.07em;font-weight:600}
   .diffwrap{margin:6px 0 2px}
+  .revwrap{margin:6px 0 2px}
+  /* What was applied, and what could not be. Kept visually distinct from the
+     side-by-side: this half is a judgement, that half is a read of the file. */
+  .revrow{border-top:1px solid var(--rule);padding:9px 0;font-size:13.5px;line-height:1.5}
+  .revrow:first-child{border-top:0}
+  .revrow b{font-weight:600}
+  .revrow .why{color:var(--ink-60);display:block;margin-top:3px}
+  .revdone{border-left:3px solid var(--green);padding-left:11px}
+  .revopen{border-left:3px solid var(--amber);padding-left:11px}
+  .revedit{width:100%;min-height:280px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+           font-size:13px;line-height:1.6}
 
   @media (max-width:620px){
     .card{grid-template-columns:48px 1fr;gap:12px;padding:14px}

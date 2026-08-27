@@ -214,16 +214,137 @@ which for decks is the more common case.
 | `scan` | `{ days?, max_messages? }` — defaults 30 and 15. Finds Debi's mail with `.docx`, `.pptx` or `.xlsx` attached, archives each to Drive, and extracts the instructions. A message already queued costs no model call. |
 | `diff` | `{ id }` → `{ paragraphs, insertions, deletions, comments, original, revised }`. `422` for anything that is not a `.docx`. |
 | `instructions_save` | `{ id, instructions }` — the **whole** list. It is one `jsonb` column, so a partial write drops the others. `state` must be `needs_human`, `done` or `skipped`. |
-| `mark` | `{ id, status }` — `pending`, `revised`, `returned` or `dismissed`. |
+| `revise` | `{ id, force? }` → `{ revision }` with `revised_text`, `applied[]` and `not_applied[]`. Starts from the mechanically-applied tracked changes and additionally acts on her margin comments and the email instructions. Cached: a second call returns the stored revision unless `force` is set, because a rewrite is a model call over a whole document. `422` when she left nothing to apply, and for anything that is not a `.docx`. |
+| `mark` | `{ id, status }` — `pending`, `revised`, `returned` or `dismissed`. Bookkeeping only: **it emails nothing and sends no file.** `returned` sets the status and stamps `returned_at`. |
 
 Reconstructing both sides of a diff is a read of the file, not a guess at
 intent: `<w:del>` runs are her original, `<w:ins>` runs are the text with her
 changes applied.
 
-**Nothing here rewrites a file.** Producing a revised `.docx` or editing a
-`.pptx` in place is a write path that does not exist, so every instruction is
-stored as `needs_human` and stays that way until a person ticks it. Do not add
-a code path that reports a change as applied when it has not been.
+**Nothing here rewrites the FILE.** `revise` produces revised *text* in
+`doc_revisions.revision`; it does not edit the `.docx` in place and cannot touch
+an image, a slide, a chart or page layout. Anything asking for those comes back
+under `not_applied` with that as the reason. The email instructions stay
+`needs_human` until a person ticks them. Do not add a code path that reports a
+change as applied when it has not been.
+
+`revise` is wired to the "Make her edits" button in the Needs editing panel as
+at 27 Aug 2026. The panel shows what was applied, what was not and why, and the
+text open for editing; **`letters.return_document`** then turns the edited text
+into a `.docx` and drafts it to Debi. Erica's edits are persisted only when she
+returns the document — there is no separate save action, because the flow she
+asked for is edit-then-send in one pass.
+
+## `letters` actions
+
+Thank-you letter generation, Drive filing and the draft to Debi. There was no
+section for this function until 27 Aug 2026; the deployed source was the only
+description of it.
+
+The `.docx` is produced by uploading styled HTML to Drive with conversion to a
+Google Doc, then exporting that Doc as `.docx`. That avoids hand-building OOXML
+and keeps Debi's formatting.
+
+| Action | Notes |
+| --- | --- |
+| `list` | `{ rules, drafts, needs_letter, batch }`. `rules` is `letter_rules` where active. `needs_letter` is `donation_ack_status` where not thanked. `batch` is `{ max, awaiting }` — how many letters sit in Drive with no draft to Debi yet. |
+| `generate` | Writes one letter. `donor_display_name` and `amount` are required. `draft_email: false` stops after Drive so `draft_batch` can pick it up. Returns `address_source`, `address_how` and `matched_account` so a missing address is visible to the caller. |
+| `draft_batch` | `{ size?, ids? }` → up to **`BATCH_MAX` = 3** letters already in Drive, gathered into ONE Gmail draft to Debi. `422` when nothing is waiting. |
+| `return_document` | `{ text, title?, heading?, original_filename?, applied?, not_applied?, doc_revision_id?, allow_placeholders? }`. Turns edited text into a `.docx` and drafts it to Debi with `applied` / `not_applied` listed in the body. `422` when a `[placeholder]` is still in the text, unless `allow_placeholders`. With `doc_revision_id` it stamps the Needs-editing row: `revised_drive_id`, `status = 'returned'`, `returned_at`, and the edited text into `revision.edited_text`. |
+| `mark_sent` | `{ id }`. Moves the `.docx` from the Unsent folder to the Sent folder and sets `status = 'sent'`. **It emails nothing.** The response says so explicitly, because the old button label read as if it did. |
+| `delete` | `{ id }`. Removes a draft: the row is deleted, the Drive `.docx` and Doc are trashed (Drive keeps them 30 days) and the Gmail draft is deleted. A letter with `status = 'sent'` is refused with `409` — that is a record, not a draft. The row goes even if Google is unreachable, so a deleted draft cannot reappear on the next load. |
+
+### Nothing is ever sent
+
+`generate` and `draft_batch` create a Gmail **draft** addressed to Debi.
+Erica reads it and sends it herself. `mark_sent` is filing in Drive. No action
+in this function sends mail, and none writes to the donor.
+
+### Where the address comes from
+
+**`crm_account_map` holds no address** — only `account_number`,
+`bloomerang_id`, `full_name`, `primary_email` and `synced_at`. So there is
+nothing local to read, and until 27 Aug every letter generated from the
+dashboard went out with a name and no address block.
+
+The address is now read **live from Bloomerang** (`GET /constituent/{id}` →
+`PrimaryAddress`) at generation time. That needs an account number, and
+`donation_ack_status` carries only a donor name, so the account is resolved
+first, in this order:
+
+1. `account_number` passed in by the caller
+2. `crm_sender_map` by email, then `crm_account_map` by unique email
+3. **`constituent_clusters` by normalised name** → `survivor_account`
+4. `crm_account_map` by name, only when exactly one row matches
+
+Step 3 is doing the work. A bare name match is not good enough: nearly every
+donor name in the mirror hits two to four constituent records because Bloomerang
+holds duplicates, and picking one of those would put another person's address on
+a tax receipt. The cluster survivor resolves about **three quarters** of the
+donors currently owed a letter; an ambiguous name resolves to nothing.
+
+When no address is found the letter is still written, with no address block, and
+the response reports `address_source: "none"` plus an `address_how` saying why.
+The dashboard shows that as a warning rather than swallowing it. Do not add a
+fallback that guesses an address.
+
+### Why `return_document` lives here
+
+It belongs to the Needs-editing workflow, not to thank-you letters, and it is
+here anyway for two reasons:
+
+1. This is the only function with a working HTML → Google Doc → `.docx`
+   pipeline, plus the Gmail multi-attachment draft path. Duplicating both into
+   `docs` would mean two copies of the machinery that produces donor documents.
+2. `docs` deliberately **does not write files** — that is stated at the top of
+   it and is worth keeping true. `docs.revise` produces text; turning text into
+   a file is a different job.
+
+It writes into `DOC_FOLDER`, the same Drive folder `docs` archives Debi's
+incoming attachments to, **not** the thank-you Unsent folder: a revised report
+is not a letter awaiting her signature.
+
+The `.docx` is rebuilt **from text**, so the original formatting, images, tables
+and layout are not carried over. `docs.revise` only ever produces text, so there
+is nothing else to carry. The draft body to Debi says this outright, and the
+dashboard repeats it above the editor, so the attachment is never mistaken for
+an in-place edit of her own file.
+
+### The signature gap
+
+`SIGN_GAP` is the number of blank lines between the closing and
+"Debi Alexander". It was one, which left nowhere to sign; it is now 4, roughly
+two thirds of an inch at 12pt. This does not conflict with letter rule 1, which
+forbids a blank spacer **before** the closing.
+
+## Creating a constituent (account number)
+
+There is no separate "create an account" function. `bloomerang`'s
+**`upsert_constituent`** is the path, and it has existed since 16 Aug 2026:
+
+- `{ organization }` with **no** `last_name` creates an Organization. Bloomerang
+  requires `FullName` here — `OrganizationName` returns a 301 with "FullName is
+  a required field" and the create silently fails.
+- `{ first_name, last_name }` creates an Individual.
+- With an `account_number`, or when a match is found, it **updates** instead:
+  a new email is added as non-primary and the primary is never overwritten.
+- On create it writes `crm_account_map` and, when an email was given,
+  `crm_sender_map`, so the new account number resolves immediately afterwards.
+- The write claims a natural key in `crm_write_ledger` first, so a retry cannot
+  double-create. **There is no undo.**
+
+Because the org/person choice is made by *whether a last name is present*, a
+caller must send one shape or the other. Sending an organisation together with a
+last name creates an Individual named after the organisation.
+
+Until 27 Aug 2026 the dashboard only offered this on rows routed in by an ask
+(`extraction.constituent`). Gift rows off the mail scan — donations,
+sponsorships, grants — got no create form at all, which is why an unmatched
+grant from Micron Technology could not be added without leaving the dashboard.
+The Bloomerang card now offers it for any unmatched row, seeded from what the
+extraction read. The sender address is only offered when it is external: the
+Micron grant arrived from `debi@sparcsolutions.org`, and seeding that would have
+written a SPARC address onto a donor record.
 
 ## `bloomerang-snapshot` actions
 

@@ -76,6 +76,7 @@
   .note{font-size:12.5px;margin-top:9px;padding:8px 11px;border-radius:6px}
   .note-ok{background:var(--green-soft);color:var(--green)}
   .note-bad{background:var(--red-soft);color:var(--red)}
+  .note-warn{background:var(--amber-soft);color:var(--amber)}
   .spacer{flex:1}
 
   .empty{text-align:center;padding:52px 24px;border:1px dashed var(--rule);border-radius:11px;background:#fff}

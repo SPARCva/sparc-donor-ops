@@ -305,11 +305,49 @@ const todayISO = () => {
 // but every one of them can be typed into before the record is created.
 const CFIELDS = [["first_name","First name","text"], ["last_name","Last name","text"],
                  ["organization","Organisation","text"], ["email","Email","email"], ["phone","Phone","tel"]];
-function blmConstituent(i) {
+
+// An address inside SPARC is never the donor's. Micron's grant email came from
+// Debi, and seeding that would have written a SPARC address onto Micron's
+// record, so an internal sender is dropped rather than offered.
+const INTERNAL_SENDER = /@sparcsolutions\.org$/i;
+
+// What to prefill the create form with.
+//
+// A row routed here by an ask carries an explicit `extraction.constituent`
+// block. A gift row — a donation, sponsorship or grant off the mail scan — does
+// not, and used to get no create form at all: the card offered a bare account
+// number box and nothing else, so an unmatched grant from Micron could not be
+// added without leaving the dashboard. This falls back to what the extraction
+// actually read out of the email. Nothing is invented; a field the email did
+// not state stays empty and says so.
+function constituentSeed(i) {
   const c = i.extraction?.constituent;
-  if (!c || i.match_constituent_id) return "";
+  const x = i.extraction || {};
+  const email = i.from_email && !INTERNAL_SENDER.test(i.from_email) ? i.from_email : "";
+  if (c) return { first_name:"", last_name:"", organization:"", phone:"", email, ...c };
+
+  const org = x.donor_organization || "";
+  const person = String(x.donor_name || "").trim();
+  if (!org && !person) return null;
+  const parts = person ? person.split(/\s+/) : [];
+  return {
+    first_name: parts.length > 1 ? parts.slice(0, -1).join(" ") : "",
+    last_name:  parts.length > 1 ? parts[parts.length - 1] : (org ? "" : (parts[0] || "")),
+    organization: org,
+    email, phone: "",
+  };
+}
+
+function blmConstituent(i) {
+  if (i.match_constituent_id) return "";
+  const c = constituentSeed(i);
+  if (!c) return "";
+  // The backend reads an organisation as "organisation set, no last name", so
+  // the two are offered as separate writes: a grant from a foundation is the
+  // foundation's record, and the person who emailed is a second one.
+  const hasOrg = !!c.organization, hasPerson = !!(c.last_name || c.first_name);
   return `<div class="blm-block">
-      <b>Add this constituent</b>
+      <b>Nothing matched this one. Add it to Bloomerang.</b>
       <p class="meta">Only what the email actually stated is filled in. Correct anything
         that is wrong and fill in what is missing before you create the record.</p>
       <div class="blm-grid">
@@ -320,9 +358,13 @@ function blmConstituent(i) {
         </div>`).join("")}
       </div>
       <div class="controls note-controls">
-        <button class="btn btn-quiet btn-sm" data-blm-new="${i.id}">Create this constituent</button>
+        ${hasOrg ? `<button class="btn btn-quiet btn-sm" data-blm-new="${i.id}" data-blm-mode="org">Create the organisation</button>` : ""}
+        ${hasPerson ? `<button class="btn btn-quiet btn-sm" data-blm-new="${i.id}" data-blm-mode="person">Create the person</button>` : ""}
+        ${!hasOrg && !hasPerson ? `<button class="btn btn-quiet btn-sm" data-blm-new="${i.id}" data-blm-mode="auto">Create this constituent</button>` : ""}
         <span class="meta">Creates the record, then fills in the account number below.</span>
       </div>
+      ${hasOrg && hasPerson ? `<p class="meta">Both are here. The organisation is the donor;
+        the person who emailed is a separate record, so create each one you need.</p>` : ""}
     </div>`;
 }
 
@@ -342,13 +384,36 @@ function blmNote(i) {
       <textarea class="field" id="bn${i.id}" data-blm-note rows="5"
         placeholder="Nothing was drafted for this one. Write the note you want on the record.">${esc(p.Note || "")}</textarea>
       <div class="controls">
-        <label class="tight" for="bd${i.id}">Dated</label>
+        <label class="tight" for="bd${i.id}">Date on the note</label>
         <input class="field med" id="bd${i.id}" data-blm-date type="date" value="${esc(date)}">
+        <span class="meta">When the note is filed, not when the gift was given.</span>
       </div>
     </div>`;
 }
 
 // The money the sweep found, sectioned by what it decided each one is, and a
+// The date the gift was GIVEN, which is not the date the email arrived. The
+// extractor finds it only when the email states it, and on every row currently
+// queued it did not — so this is the box that reads as "why am I typing a date
+// again", next to the note's own date which is prefilled.
+//
+// It stays empty rather than being filled from received_at: a gift date is a
+// fact about the gift, and quietly substituting the email's date would put a
+// wrong date on a receipt. The email date is offered as one click instead, so
+// accepting it is Erica's decision and not the app's guess.
+function giftDateField(i, x) {
+  const val = (x.gift_date || "").slice(0, 10);
+  const mail = (i.received_at || "").slice(0, 10);
+  return `<div>
+      <label for="gfgift_date${i.id}">Date the gift was given</label>
+      <input class="field" id="gfgift_date${i.id}" data-gift="gift_date" type="date"
+             value="${esc(val)}" placeholder="not stated in the email">
+      ${!val && mail
+        ? `<button class="quote-toggle" data-use-date="${i.id}:${esc(mail)}">Use the email date, ${esc(day(mail))}</button>`
+        : ""}
+    </div>`;
+}
+
 // gift card per row. Everything is editable before it is sent; nothing here
 // reaches Bloomerang without the button being pressed.
 function giftFields(i) {
@@ -366,7 +431,7 @@ function giftFields(i) {
         ${f("donor_name","Donor","text",x.donor_name,"not stated in the email")}
         ${f("donor_organization","Organisation","text",x.donor_organization,"not stated in the email")}
         ${f("amount","Amount","number",x.amount,"not stated — fill in")}
-        ${f("gift_date","Date given","date",(x.gift_date||"").slice(0,10),"not stated")}
+        ${giftDateField(i, x)}
         ${f("designation","Designation","text",x.designation,"not stated")}
         ${i.source === "sponsorship" ? f("sponsor_level","Level","text",x.sponsor_level,"not stated") : ""}
         ${x.method === "check" ? f("check_number","Check no.","text",x.check_number,"not stated") : ""}
@@ -687,9 +752,11 @@ function letterCard(d) {
     <div class="controls">
       ${state === "sent"
         ? `<span class="meta">Filed in the Sent folder.</span>`
-        : `<button class="btn btn-go btn-sm" data-letter-sent="${d.id}">Mark sent to Debi</button>`}
+        : `<button class="btn btn-go btn-sm" data-letter-sent="${d.id}">File as sent</button>
+           <button class="btn btn-quiet btn-sm" data-letter-del="${d.id}">Delete draft</button>`}
       <div class="spacer"></div>
-      <span class="meta">Never emailed to the donor.</span>
+      <span class="meta">Filing only. Nothing is emailed \u2014 the draft to Debi is in Gmail
+        for you to read and send.</span>
     </div>
     <div class="result"></div>
   </div>`;
@@ -699,6 +766,9 @@ function renderLetters() {
   const rules = L.rules || [], drafts = L.drafts || [], owed = L.needs_letter || [];
   $("cL").textContent = owed.length;
   const sent = drafts.filter(d => d.status === "sent").length;
+  // Letters sitting in Drive with no draft to Debi yet — what the batch picks up.
+  const batchMax = L.batch?.max ?? 3;
+  const awaiting = L.batch?.awaiting ?? drafts.filter(d => d.status === "in_drive" && !d.gmail_draft_id).length;
 
   $("panel-letters").innerHTML = `
     <div class="tiles">
@@ -706,6 +776,13 @@ function renderLetters() {
       <div class="tile"><b>${drafts.length}</b><span>Drafted</span></div>
       <div class="tile tile-green"><b>${sent}</b><span>Sent to Debi</span></div>
       <div class="tile"><b>${rules.length}</b><span>Rules applied</span></div>
+    </div>
+    <div class="controls">
+      ${awaiting ? `<button class="btn btn-sm" data-letters-batch="1">Draft ${Math.min(awaiting, batchMax)} to Debi</button>`
+        : `<button class="btn btn-sm" data-letters-batch="1" disabled>Draft to Debi</button>`}
+      <span class="meta">${awaiting
+        ? `${awaiting} letter${awaiting === 1 ? "" : "s"} in Drive with no draft yet. Up to ${batchMax} go in one email.`
+        : `Nothing is waiting in Drive without a draft.`}</span>
     </div>
     <div class="result note-controls" id="lettersResult"></div>
 
@@ -1084,7 +1161,7 @@ function renderDiff(id, d) {
 
 // --------------------------------------------------------------- actions
 document.addEventListener("click", async e => {
-  const t = e.target.closest("[data-retry],[data-ask-del],[data-ask-restore],[data-blm-new],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-tcsv],[data-crange],[data-gala],[data-gala-csv],[data-letters-retry],[data-letter-gen],[data-letter-sent],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr]");
+  const t = e.target.closest("[data-retry],[data-ask-del],[data-ask-restore],[data-blm-new],[data-approve],[data-reject],[data-undo],[data-guest-yes],[data-guest-no],[data-tcsv],[data-crange],[data-gala],[data-gala-csv],[data-letters-retry],[data-letter-gen],[data-letter-sent],[data-asks-retry],[data-asks-draft],[data-answer-edit],[data-answer-save],[data-answer-regen],[data-answer-approve],[data-answer-unstage],[data-answer-dismiss],[data-fu-gen],[data-fu-firmer],[data-fu-save],[data-fu-send],[data-fu-dismiss],[data-fu-answered],[data-docs-retry],[data-docs-scan],[data-doc-diff],[data-doc-mark],[data-instr],[data-use-date],[data-letter-del],[data-letters-batch],[data-doc-revise],[data-doc-revsave],[data-doc-return]");
   if (!t) return;
   const btn = t;
 
@@ -1148,6 +1225,92 @@ document.addEventListener("click", async e => {
     btn.disabled = true;
     try { await doc("mark", { id: Number(id), status }); await loadDocs(); }
     catch (err) { alert(err.message); btn.disabled = false; }
+    return;
+  }
+
+  // ---- Letters
+  //
+  // These four had no handler at all. The buttons were registered on the
+  // delegated listener and every branch was missing, so "Write the letter"
+  // and "Mark sent to Debi" did nothing when pressed — which is why one
+  // letter exists in the whole table and 44 gifts since March are still
+  // unthanked. `list` was the only letters action the page ever called.
+  if (btn.dataset.lettersRetry) return loadLetters();
+
+  // Panel-level notes are written AFTER the reload, because renderLetters()
+  // replaces the panel wholesale and would wipe a message written before it.
+  const lettersNote = (cls, html) => {
+    const o = $("lettersResult");
+    if (o) o.innerHTML = `<div class="note ${cls}">${html}</div>`;
+  };
+
+  if (btn.dataset.letterGen) {
+    let g; try { g = JSON.parse(btn.dataset.letterGen); } catch { return; }
+    const out = btn.closest(".task")?.querySelector(".result");
+    const local = (cls, m) => { if (out) out.innerHTML = `<div class="note ${cls}">${esc(m)}</div>`; };
+    if (g.amount == null) return local("note-bad", "This gift has no amount. Fill that in first.");
+    btn.disabled = true;
+    const label = btn.textContent; btn.textContent = "Writing\u2026";
+    try {
+      // draft_email:false leaves it in Drive so up to three go to Debi at once.
+      const r = await call(LTR, "generate", { ...g, draft_email: false });
+      const found = r.address_source === "bloomerang";
+      await loadLetters();
+      lettersNote(found ? "note-ok" : r.address_source === "typed" ? "note-ok" : "note-warn",
+        `Letter written for ${esc(g.donor_display_name)} and saved to Drive. `
+        + (found ? `Address from Bloomerang (${esc(r.address_how || "matched")}).`
+           : r.address_source === "typed" ? "Address as typed."
+           : `<b>No address</b> \u2014 ${esc(r.address_how || "nothing matched")}. `
+             + `Add it in the document before it goes out.`)
+        + (r.drive_url ? ` <a href="${esc(r.drive_url)}" target="_blank" rel="noopener">Open it</a>.` : "")
+        + ` Nothing has been emailed.`);
+    } catch (err) {
+      local("note-bad", err.message); btn.disabled = false; btn.textContent = label;
+    }
+    return;
+  }
+
+  if (btn.dataset.lettersBatch) {
+    btn.disabled = true;
+    const label = btn.textContent; btn.textContent = "Drafting\u2026";
+    try {
+      const r = await call(LTR, "draft_batch", {});
+      await loadLetters();
+      lettersNote("note-ok",
+        `${r.count} letter${r.count === 1 ? "" : "s"} in one draft to Debi. `
+        + `<a href="https://mail.google.com/mail/u/0/#drafts" target="_blank" rel="noopener">Open Gmail drafts</a>. `
+        + `Nothing has been sent \u2014 read it and send it yourself.`);
+    } catch (err) {
+      lettersNote("note-bad", esc(err.message));
+      btn.disabled = false; btn.textContent = label;
+    }
+    return;
+  }
+
+  if (btn.dataset.letterSent) {
+    if (!confirm("File this letter as sent?\n\nThis moves the .docx to your Sent folder in Drive. "
+      + "It does not email anything.")) return;
+    btn.disabled = true;
+    try {
+      const r = await call(LTR, "mark_sent", { id: btn.dataset.letterSent });
+      await loadLetters();
+      lettersNote("note-ok", esc(r.note || "Filed in the Sent folder."));
+    } catch (err) { lettersNote("note-bad", esc(err.message)); btn.disabled = false; }
+    return;
+  }
+
+  if (btn.dataset.letterDel) {
+    if (!confirm("Delete this draft?\n\nThe Drive files go to trash, where Drive keeps them for 30 "
+      + "days, and the Gmail draft is deleted.")) return;
+    btn.disabled = true;
+    try {
+      const r = await call(LTR, "delete", { id: btn.dataset.letterDel });
+      await loadLetters();
+      lettersNote("note-ok", `Draft deleted.`
+        + ((r.removed || []).length ? ` ${esc(r.removed.join("; "))}.` : "")
+        + ((r.failed || []).length
+            ? `<br><span class="meta">Could not remove ${esc(r.failed.join("; "))}.</span>` : ""));
+    } catch (err) { lettersNote("note-bad", esc(err.message)); btn.disabled = false; }
     return;
   }
 
@@ -1311,6 +1474,14 @@ document.addEventListener("click", async e => {
   const out = card?.querySelector(".result");
   const say = (c, m) => { if (out) out.innerHTML = `<div class="note ${c}">${esc(m)}</div>`; };
   if (btn.dataset.retry) return refresh();
+  // Accepting the email's date for the gift date. Fills the box and stops
+  // there, so it still goes to Bloomerang only when Send is pressed.
+  if (btn.dataset.useDate) {
+    const [id, iso] = btn.dataset.useDate.split(":");
+    const el = document.getElementById("gfgift_date" + id);
+    if (el) { el.value = iso; btn.remove(); }
+    return;
+  }
   // Create the constituent an ask asked for, from whatever is in the boxes at
   // the moment the button is pressed — not from the extraction, so a correction
   // she typed is the thing that gets written. Confirmed by name first: this
@@ -1318,17 +1489,25 @@ document.addEventListener("click", async e => {
   if (btn.dataset.blmNew) {
     const get = k => card?.querySelector(`[data-blm-c="${k}"]`)?.value.trim() || "";
     const c = Object.fromEntries(CFIELDS.map(([k]) => [k, get(k)]));
-    const who = c.organization || [c.first_name, c.last_name].filter(Boolean).join(" ");
-    if (!who) { say("note-bad", "Enter a name or an organisation first."); return; }
-    if (!confirm(`Create ${who} in Bloomerang? This adds a new constituent record.`)) return;
+    // The backend decides organisation vs person by whether a last name is
+    // present, so the mode has to send one or the other and not both: an
+    // organisation carrying a last name would be written as an individual.
+    const mode = btn.dataset.blmMode || "auto";
+    const asOrg = mode === "org" || (mode === "auto" && !!c.organization && !c.last_name);
+    const who = asOrg ? c.organization : [c.first_name, c.last_name].filter(Boolean).join(" ");
+    if (!who) {
+      say("note-bad", asOrg ? "Enter an organisation name first." : "Enter a first and last name first.");
+      return;
+    }
+    if (!confirm(`Create ${who} in Bloomerang as ${asOrg ? "an organisation" : "a person"}? `
+      + `This adds a new constituent record and there is no undo.`)) return;
     btn.disabled = true;
     const label = btn.textContent; btn.textContent = "Creating…";
     try {
-      const r = await blm("upsert_constituent", {
-        first_name: c.first_name || undefined, last_name: c.last_name || undefined,
-        organization: c.organization || undefined,
-        email: c.email || undefined, phone: c.phone || undefined,
-      });
+      const r = await blm("upsert_constituent", asOrg
+        ? { organization: c.organization, email: c.email || undefined, phone: c.phone || undefined }
+        : { first_name: c.first_name || undefined, last_name: c.last_name || undefined,
+            email: c.email || undefined, phone: c.phone || undefined });
       say("note-ok", r.created
         ? `Created. Account #${r.account_number}. Now approve the note below.`
         : `Already on file as account #${r.account_number}. Now approve the note below.`);

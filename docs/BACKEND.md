@@ -316,6 +316,27 @@ still guessing.
 `daily-sweep` is unchanged and still owns Kat's check emails and the guest queue. This
 function only adds what was missing.
 
+### One gift per thread, not one per message
+
+The first version keyed the queue on the Gmail **message** id, and a grant thread with
+replies produced one gift per reply. On the first real run that meant the Micron award
+staged three times and the Jack R. Anderson award three times — twice with a null amount,
+because the reply that named the figure was not the reply being read. Approving those
+would have pushed the same grant to Bloomerang three times over.
+
+The queue is now keyed on the **thread**. A later message in a thread that already has a
+staged gift does not create a second row, but it is not discarded either: if it carries
+an amount, a date or a donor the staged row is missing, the row is **enriched** and
+`extraction.enriched_from` records which message supplied which field. A reply is usually
+where the figure finally appears, so throwing it away loses exactly what is worth having.
+
+The message still gets a `source_tombstones` row saying which staged gift it belongs to,
+so a re-run neither re-judges it nor re-stages it.
+
+Four duplicate rows created before the fix were removed on 27 Aug 2026, keeping the most
+informative row per thread — an amount beats a null one, oldest as the tiebreak — and
+tombstoning the rest.
+
 ### What it will not do
 
 It never writes to Bloomerang and never creates a constituent. Every hit lands in

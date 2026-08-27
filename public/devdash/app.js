@@ -99,14 +99,20 @@ function waitBlock(days) {
 $("signinForm").addEventListener("submit", async e => {
   e.preventDefault();
   const b = $("signinBtn"); b.disabled = true; b.textContent = "Signing in…"; $("signinMsg").innerHTML = "";
+  let signedIn = false;
   try {
     const r = await api("login", { email:$("email").value, password:$("password").value });
     saveSession(r);
+    signedIn = true;
     enterApp();
     await refresh();
   } catch (err) {
-    $("signinMsg").innerHTML = `<div class="msg msg-bad">${esc(err.message)}</div>`;
     $("password").value = "";
+    // Anything that fails after enterApp() has to be reported inside the app:
+    // the sign-in card is hidden by then, so a message written there is a
+    // message nobody sees, and the page just reads "Loading…" forever.
+    if (signedIn) return showFailure(err);
+    $("signinMsg").innerHTML = `<div class="msg msg-bad">${esc(err.message)}</div>`;
   } finally { b.disabled = false; b.textContent = "Sign in"; }
 });
 
@@ -143,10 +149,14 @@ const PANELS = ["bloomerang","gala","letters","asks","followups","docs","complet
 
 async function refresh() {
   PANELS.forEach(p => $("panel-"+p).innerHTML = `<div class="loading">Loading…</div>`);
-  // The task list still loads even though Today is gone: Asks builds its
-  // "not drafted yet" list from it and Follow ups its candidates.
-  loadTasks();
-  try { D = await api("dashboard"); render(); }
+  try {
+    // The task list still loads even though Today is gone: Asks builds its
+    // "not drafted yet" list from it and Follow ups its candidates. It is not
+    // awaited, and it swallows its own failure, so the Bloomerang queue never
+    // waits on it.
+    loadTasks();
+    D = await api("dashboard"); render();
+  }
   catch (e) {
     // 401 means the session is gone: return to sign-in rather than offering a
     // retry that can only fail. Anything else is treated as "server
@@ -179,6 +189,26 @@ function showFailure(e) {
   // their own failure states; a donor-ops outage should not blank a panel that
   // loaded fine from somewhere else.
   ["bloomerang","gala"].forEach(p => $("panel-"+p).innerHTML = html);
+}
+
+// The task list has no panel of its own since Today was folded away, but three
+// panels still read it: Asks builds its "not drafted yet" list from T.tasks,
+// Follow ups its candidates, and Completed takes its end date from T.today.
+// So it loads with the dashboard and re-renders whatever is already on screen.
+//
+// It never throws. Every consumer already falls back when T is null, and
+// refresh() calls this without awaiting it — a task-list outage must not cost
+// Erica the Bloomerang queue. A 401 is the one exception worth surfacing: the
+// session is gone and no other call will succeed either.
+async function loadTasks() {
+  try {
+    T = await tsk("list");
+    if (A) renderAsks();
+    if (F) renderFollowups();
+    updateLede();
+  } catch (e) {
+    if (e.status === 401) backToSignin("Your session has ended. Please sign in again.");
+  }
 }
 
 // The lede sits above every panel, so it has to describe whichever tab is
@@ -698,6 +728,10 @@ function renderLetters() {
 // the generator grades its own output and says what it could not source, and
 // a bracketed placeholder means a human still has to fill a gap. Nothing here
 // sends — approved answers assemble into one Gmail draft in Debi's numbering.
+
+// An ask found by the mail scan carries the thread it came from, so a card can
+// link back to it. Hand-added asks have no thread and get no link.
+const GMAIL_THREAD = id => "https://mail.google.com/mail/u/0/#all/" + encodeURIComponent(id);
 
 const FLAG_LABEL = {
   unsourced_claim: "Unsourced",

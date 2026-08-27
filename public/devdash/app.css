@@ -95,6 +95,10 @@
   .s-wait{background:var(--amber-soft);color:var(--amber)}
   .s-info{background:var(--blue-soft);color:var(--blue)}
   .s-bad{background:var(--red-soft);color:var(--red)}
+  /* A match found on the donor's name alone. Offered, not assumed: a wrong
+     account number writes a gift onto the wrong donor's record. */
+  .s-warn{background:var(--amber-soft);color:var(--amber)}
+  .s-warn .quote-toggle{color:var(--amber);text-transform:none;letter-spacing:0;font-weight:600}
   .loading{text-align:center;padding:52px;color:var(--ink-40);font-size:14px}
   .notebox{background:#fff;border:1px solid var(--rule);border-radius:11px;padding:16px 18px;margin-bottom:18px;box-shadow:var(--shadow)}
   .noterow{background:#fff;border:1px solid var(--rule);border-radius:10px;padding:13px 16px;margin-bottom:9px;box-shadow:var(--shadow)}

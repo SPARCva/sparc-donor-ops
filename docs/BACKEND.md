@@ -413,7 +413,7 @@ Turning it on as written would send names Bloomerang does not have.
 
 | Action | Notes |
 | --- | --- |
-| `scan` (default) | `{ days?, max_messages?, max_extractions? }` — reads Erica's mail, classifies each candidate, stages a `crm_inbox` row per gift. Returns `{ donations, sponsorships, grants, not_a_gift, already_decided, remaining, complete }`. |
+| `scan` (default) | `{ days?, max_messages?, max_extractions? }` — reads Erica's mail, classifies each candidate, stages a `crm_inbox` row per gift. Returns `{ donations, sponsorships, grants, matched, needs_confirming, no_constituent, not_a_gift, already_decided, remaining, complete }`. |
 
 Runs three times a day, five minutes behind the task scans so the two do not contend
 for the edge worker.
@@ -457,6 +457,54 @@ so a re-run neither re-judges it nor re-stages it.
 Four duplicate rows created before the fix were removed on 27 Aug 2026, keeping the most
 informative row per thread — an amount beats a null one, oldest as the tiebreak — and
 tombstoning the rest.
+
+### It resolves the donor before staging (v3, 28 Aug 2026)
+
+Until v3 `gift-scan` had **no matching step at all**, so every gift it staged carried
+`match_constituent_id` null. Two things followed from that, and both were bad:
+
+- The card read "No constituent match" for a donor plainly on file, and
+  `bloomerang.approve` refused the push with the same words. **No gift found by this
+  scanner could ever reach Bloomerang.**
+- The obvious move from that screen — create the constituent — made a **duplicate of a
+  record that already existed**. That is how this CRM came to hold two to four rows for
+  most donors.
+
+v3 mirrors the **cheap half** of `bloomerang.matchConstituent`: local tables only
+(`crm_sender_map`, `crm_account_map`, `constituent_clusters`), no Bloomerang API call.
+It has to be a mirror rather than a call, because `bloomerang`'s own `requireUser` does
+**not** accept the service role key, so cron cannot reach it over HTTP. If you change
+one matcher, change both, or the scan and the push will disagree about who a gift
+belongs to.
+
+| Method | Score | Source |
+| --- | --- | --- |
+| `sender_map` | 1.0 | `crm_sender_map` — a mapping Erica confirmed |
+| `account_map_email` | 0.95 | exactly one `crm_account_map` row with that email |
+| `cluster_survivor(N records)` | 0.7 | `constituent_clusters.survivor_account` |
+| `account_map_name` | 0.65 | exactly one `crm_account_map` row with that name |
+| `ambiguous_name` | 0 | more than one name hit — resolves to **nothing** |
+| `no_match` | 0 | nothing found |
+
+**Only a score ≥ `CONFIRMED` (0.9) is written into `match_constituent_id`.** Anything
+weaker goes to `match_candidates` with the column left null, and the row is flagged
+`match_needs_confirming`. That threshold is the whole safety property: the dashboard
+renders a populated `match_constituent_id` as a settled green "Matched" and skips the
+"use it" confirmation, so a name-only guess in that column silently becomes a decision —
+and a wrong account number files a gift onto another donor's record. A name that hits
+more than one row resolves to nothing for the same reason.
+
+**Matched on `extraction.donor_email`, never on the message sender.** The Micron grant
+arrived from `debi@sparcsolutions.org`; matching on the sender would file the gift
+against Debi's own record.
+
+`enrich()` re-runs the match when a later message in the thread finally supplies a donor
+name or email, but **only when `match_constituent_id` is still null** — it fills a
+blank, it never overwrites a match already on the row.
+
+Two rows staged before v3 were backfilled to the same shape on 28 Aug: the Micron grant
+(candidate 3423) and the "Grant Agreement Received" Jack R. Anderson row (candidate 210),
+both `account_map_name` at 0.65, both left unmatched and flagged for confirmation.
 
 ### What it will not do
 

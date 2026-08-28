@@ -810,7 +810,7 @@ function letterCard(d) {
     ${d.body_html ? `<div class="letterpage">${d.body_html}</div>` : ""}
     <div class="controls">
       ${state === "sent"
-        ? `<span class="meta">Filed in the Sent folder.</span>`
+        ? `<span class="meta">Filed in the Thank You Letters folder.</span>`
         : `<button class="btn btn-go btn-sm" data-letter-sent="${d.id}">File as sent</button>
            <button class="btn btn-quiet btn-sm" data-letter-del="${d.id}">Delete draft</button>`}
       <div class="spacer"></div>

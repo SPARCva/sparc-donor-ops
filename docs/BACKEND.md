@@ -293,8 +293,30 @@ and keeps Debi's formatting.
 | `generate` | Writes one letter. `donor_display_name` and `amount` are required. `draft_email: false` stops after Drive so `draft_batch` can pick it up. Returns `address_source`, `address_how` and `matched_account` so a missing address is visible to the caller. |
 | `draft_batch` | `{ size?, ids? }` → up to **`BATCH_MAX` = 3** letters already in Drive, gathered into ONE Gmail draft to Debi. `422` when nothing is waiting. |
 | `return_document` | `{ text, title?, heading?, original_filename?, applied?, not_applied?, doc_revision_id?, allow_placeholders? }`. Turns edited text into a `.docx` and drafts it to Debi with `applied` / `not_applied` listed in the body. `422` when a `[placeholder]` is still in the text, unless `allow_placeholders`. With `doc_revision_id` it stamps the Needs-editing row: `revised_drive_id`, `status = 'returned'`, `returned_at`, and the edited text into `revision.edited_text`. |
-| `mark_sent` | `{ id }`. Moves the `.docx` from the Unsent folder to the Sent folder and sets `status = 'sent'`. **It emails nothing.** The response says so explicitly, because the old button label read as if it did. |
+| `mark_sent` | `{ id }`. Moves the `.docx` from the Unsent folder to Erica's **"Thank You Letters"** folder (`1kjl93FPPzC3Q_B4frRxI7fQgPuMrNTrv`, her choice 28 Aug 2026 — the old Sent folder is retired) and sets `status = 'sent'`. **It emails nothing.** The response says so explicitly, because the old button label read as if it did. |
 | `delete` | `{ id }`. Removes a draft: the row is deleted, the Drive `.docx` and Doc are trashed (Drive keeps them 30 days) and the Gmail draft is deleted. A letter with `status = 'sent'` is refused with `409` — that is a record, not a draft. The row goes even if Google is unreachable, so a deleted draft cannot reappear on the next load. |
+
+### The ticket line (v8, 28 Aug 2026)
+
+A gift that came with gala tickets is never receipted as "no goods or services
+were provided" — that sentence appears only when the gift carried neither
+tickets nor goods. For ticketed gifts the receipt states, in Debi's own wording
+(18 Aug 2026, "Re: Victor Hoskins"), below the signature block:
+
+> Please note that the value of the N tickets received is not tax deductible.
+
+Per Erica (28 Aug 2026) **no dollar figure is added** and the phrase "fair
+market value" is not used. The v7 guard that refused ticketed gifts without a
+`goods_value` (422) is gone — no per-ticket value is needed any more.
+`goods_value` is still accepted and, when present without tickets, produces
+"the goods and services received" in the same sentence; if Debi ever wants the
+deductible amount stated, restoring it to the sentence is one line in
+`disclaimer()`. This rule is also `letter_rules` id 14.
+
+Standing directives like this one now also live in **`ops_memory`** — one row
+per instruction with `status` proposed / saved / deleted, its source email and
+a verbatim quote. Generators should read only `status='saved'` rows for their
+scope. Erica reviews proposed rows line by line.
 
 ### Nothing is ever sent
 

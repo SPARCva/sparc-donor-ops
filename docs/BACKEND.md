@@ -358,8 +358,22 @@ a money write.
 
 Resumable for the same reason `tasks/scan` is: Bloomerang caps `take` at 50 and a long run
 hits `WORKER_RESOURCE_LIMIT`. `complete: false` means call again with `skip = next_skip`.
-Scheduled nightly at 07:30 UTC with `max_pages: 8` — results come back newest-first, so 400
-rows always covers new activity. A full rebuild is a manual walk.
+Scheduled nightly at 07:30 UTC with `max_pages: 8` — results come back newest-first
+(`orderBy=Date&orderDirection=Desc`), so 400 rows always covers new activity. A full
+rebuild is a manual walk.
+
+**The nightly run therefore returns `complete: false` every time, and that is correct** —
+it is not a broken job. It refreshes the newest 400 of ~1,677 and stops; `next_skip` is
+deliberately not fed back, because re-walking the whole history daily buys nothing.
+
+So `complete` is the wrong thing to judge the mirror by. **The durable check is
+`rows_in_snapshot == total`** in the response, both of which the nightly run reports even
+though it only read a slice. On 28 Aug 2026 that read 1676 against a total of 1677 — one
+transaction, somewhere in the older tail, had never been loaded. A manual walk
+(`{"skip":400,"max_pages":30}`) closed it: 1677/1677, `complete: true`,
+`unmatched_accounts: 0`. Re-running `donation-sync` afterwards promoted nothing, so the
+missing row was not an unthanked gift. Worth repeating that walk whenever the two numbers
+disagree.
 
 ### What was wrong with the previous snapshot
 

@@ -172,6 +172,48 @@ treated as an unsourced claim whether or not the model flagged it.
 | `followup_send` | `{ id }`. Sends one email. `422` with no recipient, and `422` if a `[placeholder]` is still in the body. |
 | `followup_answered` / `followup_dismiss` | `{ id }`. |
 
+## `asks-autodraft` actions
+
+Erica, 27 Aug 2026: *"I don't want to hit draft an answer anywhere, I want the suggested
+answer already drafted. I will edit then send."* So the Asks panel should have a draft
+waiting rather than a button. Deployed 28 Aug 2026.
+
+| Action | Notes |
+| --- | --- |
+| `run` (default) | `{ limit? }` (default 10, hard cap 15). Drafts the **newest** un-drafted open asks by calling `asks.generate` once per task. Returns `{ counts: { drafted, refused, failed }, drafted, refused, failed, remaining, complete, stopped_early, elapsed_ms }`. |
+| `preview` | `{ limit? }`. What it *would* draft, and `without_a_draft` — the honest backlog count. Read-only: **spends no model call**, so use it before changing the limit. |
+
+### Why it is a separate function, not an action on `asks`
+
+Every draft is one Anthropic call plus a Gmail thread fetch, and a long sequence of them
+inside one worker hits `WORKER_RESOURCE_LIMIT` — the same reason `tasks.scan` is resumable.
+Calling `asks.generate` over **HTTP** gives each draft its own worker invocation with its
+own limit; this function only waits on the network. It also means a bug here cannot break
+the answer generator itself.
+
+### What it will not do
+
+It does not clear the backlog, and does not pretend to. There were **398** open asks
+without a draft on 28 Aug; drafting all of them is 398 model calls. It spends at most
+`limit` per run and reports `remaining` honestly, so three runs a day keep the front of
+the queue warm. Erica chose that scope: *"Newest 10 on each scan."*
+
+It never drafts for a hand-added task or one whose Gmail thread cannot be read —
+`asks.generate` refuses those with `422` because there is nothing to source an answer
+from, and refusing is the feature. Those are filtered out before the budget is spent and
+counted as `refused`, separately from real `failed`.
+
+Nothing is sent, and nothing reaches `staged`. Drafts land at `status = 'draft'` for Erica
+to edit, exactly as if she had clicked the button.
+
+**A draft may contain a `[bracketed placeholder]`, and that is correct** — the generator
+writes one wherever a fact cannot be sourced from the thread, rather than inventing it,
+and flags the draft `unsourced_claim`. On 28 Aug task 420 ("background context for the
+$100 before Debi can sign letters") drafted as *"I do not have the background on the $100
+in this thread… [description of what the $100 represents]"* — the honest answer. That is
+the opposite of the letters path, where `letters.return_document` **422s** on a leftover
+placeholder: a letter goes to a donor, an answer goes to Erica to finish.
+
 Regenerating replaces rather than stacks: there is one live answer per task.
 Nothing here sends anything to Debi, and follow-ups send one at a time on their
 own approval — there is no bulk send anywhere in this function.
@@ -562,6 +604,11 @@ the award letter states a single figure.
 | `sync-bloomerang-transactions` | 07:30 daily | `bloomerang-snapshot` |
 | `tasks-scan-0800` / `-1200` / `-1700` | 12:00 / 16:00 / 21:00 | `tasks` `scan` |
 | `gift-scan-0800` / `-1200` / `-1700` | 12:05 / 16:05 / 21:05 | `gift-scan` `scan` |
+| `asks-autodraft-1200` / `-1600` / `-2100` | 12:10 / 16:10 / 21:10 | `asks-autodraft` `run`, `limit: 10` |
+| `promote-donations` | 07:45 daily | `donation-sync` |
+
+Each family is offset five minutes from the last so they do not contend for the edge
+worker: tasks scan at `:00`, gift scan at `:05`, answer drafting at `:10`.
 
 `call_edge` reads `system_config.cron_token`; `call_edge_svc` reads `tasks_cron_token`. Both
 are app session tokens, not API keys, so they survive Supabase key rotation — but they

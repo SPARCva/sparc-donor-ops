@@ -2,6 +2,18 @@
 
 Instructions for Claude Code working in this repo. Read this before changing anything.
 
+## FIRST, every session: read CLAUDE-OPS.md in Drive
+
+Erica keeps the live operating instructions in her Drive "Claude" folder:
+**`CLAUDE-OPS.md`**, file id `13upNtY2jL_jPLpRIPoCIkTwPO-bf328A`, in folder
+`1WXGClLRm0OWY--qL9XrFxChN8vAgJIWg`. Fetch it through the Google Drive
+connector at the start of any session that touches this application — the
+dashboard, the Supabase backend, Gmail/Drive automation, or Bloomerang — and
+follow it. It is updated more often than this file; where the two disagree,
+CLAUDE-OPS.md is newer and wins. Also read the `ops_memory` table it points
+to (`status='saved'` rows are standing directives from Erica and Debi). If
+the Drive connector is unavailable, say so to Erica before changing anything.
+
 ## What this is
 
 An internal admin dashboard for SPARC's development office. It surfaces gifts,

@@ -296,6 +296,21 @@ and keeps Debi's formatting.
 | `mark_sent` | `{ id }`. Moves the `.docx` from the Unsent folder to Erica's **"Thank You Letters"** folder (`1kjl93FPPzC3Q_B4frRxI7fQgPuMrNTrv`, her choice 28 Aug 2026 — the old Sent folder is retired) and sets `status = 'sent'`. **It emails nothing.** The response says so explicitly, because the old button label read as if it did. |
 | `delete` | `{ id }`. Removes a draft: the row is deleted, the Drive `.docx` and Doc are trashed (Drive keeps them 30 days) and the Gmail draft is deleted. A letter with `status = 'sent'` is refused with `409` — that is a record, not a draft. The row goes even if Google is unreachable, so a deleted draft cannot reappear on the next load. |
 
+### The template (v9, 28 Aug 2026)
+
+Letters are styled to Erica's own sent letters of 28 Aug 2026 — the reference
+copy is "Hoskins Thank You 8.28 edits.docx" in Thank You Letters/Sent
+(`1ksE89JXow2p8GJcympicM02m1oUYi_uE`): body **left-aligned** (not justified)
+with 12pt after; centered 3.5" logo; **no blank lines between the closing and
+the bold signature name** (`SIGN_GAP = 0`); legal line at 10pt; **six centers
+including Sterling** in the program paragraph. The ticket sentence follows her
+template pattern: "Your [Level] Sponsorship includes N gala tickets, and your
+gift is tax-deductible to the extent allowed by law" — count in words, no
+dollar figure (`generate` accepts an optional `sponsor_level`). `list` orders
+the owed list `donation_date` descending with **nulls last**, so undated gifts
+no longer top a newest-first list. Letter rules 7, 11 and 14 were updated to
+match.
+
 ### The ticket line (v8, 28 Aug 2026)
 
 A gift that came with gala tickets is never receipted as "no goods or services

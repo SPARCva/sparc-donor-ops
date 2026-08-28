@@ -366,14 +366,21 @@ rebuild is a manual walk.
 it is not a broken job. It refreshes the newest 400 of ~1,677 and stops; `next_skip` is
 deliberately not fed back, because re-walking the whole history daily buys nothing.
 
-So `complete` is the wrong thing to judge the mirror by. **The durable check is
-`rows_in_snapshot == total`** in the response, both of which the nightly run reports even
-though it only read a slice. On 28 Aug 2026 that read 1676 against a total of 1677 — one
-transaction, somewhere in the older tail, had never been loaded. A manual walk
-(`{"skip":400,"max_pages":30}`) closed it: 1677/1677, `complete: true`,
-`unmatched_accounts: 0`. Re-running `donation-sync` afterwards promoted nothing, so the
-missing row was not an unthanked gift. Worth repeating that walk whenever the two numbers
-disagree.
+So `complete` is the wrong thing to judge the mirror by. **The durable check is the row
+count against `total`** in the response, both of which the nightly run reports even though
+it only read a slice.
+
+On 28 Aug 2026 that read 1676 against a total of 1677 — one transaction, somewhere in the
+older tail, had never been loaded. A manual walk (`{"skip":400,"max_pages":30}`) closed
+it: 1677/1677, `complete: true`, `unmatched_accounts: 0`. Re-running `donation-sync`
+afterwards promoted nothing, so the missing row was not an unthanked gift.
+
+**`bloomerang-ack` pages the same endpoint the same way and had the same one-row gap** —
+`bloomerang_acknowledgments` also held 1676 of 1677 — closed by the same walk. So this is
+a property of the paginate-a-slice-nightly pattern, not of one loader: **whenever a
+Bloomerang mirror's row count and `total` disagree, walk it from `skip: 400`.** That table
+matters more than the snapshot, because `acknowledged` is what says whether a donor has
+already been thanked; a row missing from it is a gift that cannot be seen as unthanked.
 
 ### What was wrong with the previous snapshot
 

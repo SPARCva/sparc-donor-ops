@@ -461,6 +461,14 @@ Bloomerang mirror's row count and `total` disagree, walk it from `skip: 400`.** 
 matters more than the snapshot, because `acknowledged` is what says whether a donor has
 already been thanked; a row missing from it is a gift that cannot be seen as unthanked.
 
+**Expect the two mirrors to disagree at weekends.** `sync-bloomerang-ack` runs
+`0 11 * * 1-5` — weekdays only — while `sync-bloomerang-transactions` runs daily. So from
+Friday's run until Monday's, `bloomerang_acknowledgments` lags `snap_transactions` by
+whatever arrived over the weekend. On Saturday 29 Aug it sat at 1677 against the
+snapshot's 1775; one default `{"max_pages":8}` call, newest-first, closed all 98. That is
+a schedule gap, not a fault — but it is worth knowing before treating a weekend
+disagreement as the one-row bug above.
+
 ### What was wrong with the previous snapshot
 
 `snap_transactions` held 1,672 rows with `fund`, `campaign`, `appeal`, `transaction_type`
